@@ -221,3 +221,35 @@ def lookup(mapping, key):
         pass
 
     raise KeyMismatch(mapping, key)
+
+
+def broadcast(bindings):
+    values = _broadcast(*bindings.values())
+    return {k: v for k, v in zip(bindings.keys(), values)}
+
+
+def _broadcast(*bound_values):
+    common_length = None
+    for v in bound_values:
+        if isinstance(v, Repeating):
+            if common_length is None:
+                common_length = len(v.values)
+            else:
+                assert len(v.values) == common_length
+
+    if common_length is None:
+        return bound_values
+
+    if common_length == 0:
+        return [[] for _ in bound_values]
+
+    values = []
+    for v in bound_values:
+        if isinstance(v, Repeating):
+            v = v.values
+        else:
+            v = [v] * common_length
+        values.append(v)
+
+    tmp = [_broadcast(*x) for x in zip(*values)]
+    return list(map(list, zip(*tmp)))
