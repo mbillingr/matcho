@@ -1,6 +1,6 @@
 import pytest
 
-from matcho import bind, build_matcher, LiteralMismatch, LengthMismatch
+from matcho import bind, build_matcher, LiteralMismatch, LengthMismatch, Repeating
 
 
 def test_match_literal():
@@ -38,9 +38,44 @@ def test_simple_list_matching():
         build_matcher([bind("x"), bind("y")])([1, 2, 3])
 
 
-def test_variable_length_list_matching():
+def test_repeating_list_matching():
     assert build_matcher([...])([]) == {}
     assert build_matcher([...])([1, 2, 3]) == {}
+    assert build_matcher([1, ...])([1]) == {}
+    assert build_matcher([1, ...])([1, 1, 1]) == {}
+
+    with pytest.raises(LiteralMismatch):
+        build_matcher([1, ...])([2])
+
+
+def test_repeating_list_matching_with_binding():
+    assert build_matcher([bind("x"), ...])([1]) == {"x": Repeating([1])}
+    assert build_matcher([bind("x"), ...])([1, 2]) == {"x": Repeating([1, 2])}
+
+
+def test_repeating_list_matching_with_multiple_bindings():
+    assert build_matcher([[bind("x"), bind("y")], ...])([[1, 2], ["a", "b"]]) == {
+        "x": Repeating([1, "a"]),
+        "y": Repeating([2, "b"]),
+    }
+
+
+def test_repeating_list_matching_with_nested_bindings():
+    assert build_matcher([[bind("x"), ...], ...])([[1, 2], [3]]) == {
+        "x": Repeating([Repeating([1, 2]), Repeating([3])])
+    }
+
+
+def test_repeating_list_with_prefix():
+    assert build_matcher([1, 2, 3, ...])([1, 2, 3]) == {}
+    assert build_matcher([1, 2, 3, ...])([1, 2, 3, 3]) == {}
+    assert build_matcher([1, 2, 3, ...])([1, 2, 3, 3, 3]) == {}
+
+    with pytest.raises(LiteralMismatch):
+        assert build_matcher([1, 2, 3, ...])([1, 2, 3, 4]) == {}
+
+    with pytest.raises(LiteralMismatch):
+        assert build_matcher([1, 2, 3, ...])([1, 2]) == {}
 
 
 # Matching Rules

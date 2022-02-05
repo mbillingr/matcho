@@ -11,6 +11,10 @@ class LiteralMismatch(Mismatch):
     pass
 
 
+class TypeMismatch(Mismatch):
+    pass
+
+
 class ExpectedListMismatch(Mismatch):
     pass
 
@@ -26,6 +30,11 @@ def bind(name: str):
 @dataclass
 class Bind:
     name: str
+
+
+@dataclass
+class Repeating:
+    values: list
 
 
 def build_matcher(pattern):
@@ -51,13 +60,26 @@ def build_binding_matcher(name):
     return lambda data: {name: data}
 
 
+def build_instance_matcher(expected_type):
+    def instance_matcher(data):
+        if isinstance(data, expected_type):
+            return {}
+        raise TypeMismatch(data, expected_type)
+
+    return instance_matcher
+
+
 def build_list_matcher(pattern):
     class Special:
         ELLIPSIS = ...
 
     match pattern:
+        case [Special.ELLIPSIS]:
+            return build_instance_matcher(list)
+        case [item, Special.ELLIPSIS]:
+            return build_repeating_list_matcher(item)
         case [*_, Special.ELLIPSIS]:
-            raise NotImplementedError(...)
+            raise NotImplementedError()
         case _:
             return build_fixed_list_matcher(pattern)
 
@@ -75,6 +97,26 @@ def build_fixed_list_matcher(pattern):
         return reduce(or_, map(apply_first, zip(matchers, data)), {})
 
     return fixed_list_matcher
+
+
+def build_repeating_list_matcher(pattern):
+    item_matcher = build_matcher(pattern)
+
+    def repeating_matcher(data):
+        if not isinstance(data, list):
+            raise ExpectedListMismatch(data)
+
+        bindings = {}
+
+        for d in data:
+            bnd = item_matcher(d)
+
+            for k, v in bnd.items():
+                bindings.setdefault(k, Repeating([])).values.append(v)
+
+        return bindings
+
+    return repeating_matcher
 
 
 def apply_first(seq):
