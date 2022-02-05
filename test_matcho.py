@@ -4,7 +4,8 @@ from matcho import (
     bind,
     build_matcher,
     default,
-    skip_if_missing,
+    skip_mismatch,
+    skip_missing_keys,
     KeyMismatch,
     LiteralMismatch,
     LengthMismatch,
@@ -127,105 +128,63 @@ def test_key_with_defaults():
 
 
 def test_skippable_key_failure():
-    pattern = [skip_if_missing(["x"], {"x": bind("x")}), ...]
+    pattern = [skip_missing_keys(["x"], {"x": bind("x")}), ...]
     data = [{"x": 1}, {}, {"x": 2}]
     assert build_matcher(pattern)(data) == {"x": Repeating([1, 2])}
 
 
-# Matching Rules
-
-## Literals
-# Pattern | matches
-#     42  | 42
-#   "foo" | "foo"
-
-## Capturing
-# Pattern | matches
-#     foo | ?
-
-## Lists
-# Pattern | matches
-#      [] | []
-#   [...] | [*]
-# [0 ...] | [0 *]
-# [x ...] | [? *]
-# [1 x 2] | [1 ? 2]
-
-## Dicts
-#            Pattern | matches
-#                 {} | any dictionary
-#              {k:v} | any dictionary that contains key k whose value matches
-# {default(k, d): v} | matches like {k:v} but if k not in dict, pretend its value is d
+def test_skippable_list_item():
+    pattern = [skip_mismatch([1, bind("x")]), ...]
+    data = [[1, 2], [1], [1, 3]]
+    assert build_matcher(pattern)(data) == {"x": Repeating([2, 3])}
 
 
-"""
-data = {
-    "x": 42,
-    "more": [{"y": 1, "z": [1, 2]}, {"y": 2, "z": [1, 2]}, {"y": 3, "z": [0, 0]}],
-}
-pattern = {"x": bind("x"), "more": [{"y": bind("y"), "z": [bind("z"), ...]}, ...]}
+def test_contrived_example():
+    data = {
+        "id": 42,
+        "measurements": [
+            {
+                "timestamp": 1,
+                "recordings": [{"mean": 3.0, "std": 1.4}, [1, 2, 3, 4, 5]],
+            },
+            {
+                "timestamp": 2,
+                "recordings": [
+                    {"mean": 3.0, "std": 1.6},
+                ],
+            },
+            {
+                "timestamp": 3,
+                "recordings": [
+                    {"mean": 3.0, "std": 1.6},
+                    [1, 3, 5],
+                ],
+            },
+            {
+                "timestamp": 4,
+            },
+        ],
+    }
 
+    pattern = {
+        "id": bind("global_id"),
+        "measurements": [
+            skip_missing_keys(
+                ["recordings"],
+                {
+                    "timestamp": bind("t"),
+                    "recordings": skip_mismatch([{}, [bind("x"), ...]]),
+                },
+            ),
+            ...,
+        ],
+    }
 
-VARIANT_A = {"x": 42, "y": [1, 2, 3], "z": [[1, 2], [1, 2], [0, 0]]}
+    matcher = build_matcher(pattern)
+    bindings = matcher(data)
 
-VARIANT_B = (
-    {"x: 42"},
-    [
-        ({"y": 1}, [({"z": 1},), ({"z": 2},)]),
-        ({"y": 2}, [({"z": 1},), ({"z": 2},)]),
-        ({"y": 3}, [({"z": 0},), ({"z": 0},)]),
-    ],
-)
-
-#########################################################
-
-data = [
-    {"x": [1, 2], "y": 1, "z": [1, 2]},
-    {"x": [3, 4], "y": 2, "z": [1, 2]},
-    {"x": [5, 6], "y": 3, "z": [0, 0]},
-]
-
-pattern = [{"x": [bind("x"), ...], "y": bind("y"), "z": [bind("z"), ...]}, ...]
-
-
-VARIANT_A = {
-    "x": [[1, 2], [3, 4], [5, 6]],
-    "y": [1, 2, 3],
-    "z": [[1, 2], [1, 2], [0, 0]],
-}
-
-VARIANT_B = (
-    {},
-    [
-        ({"y": 1}, [({"x": 1, "z": 1},), ({"x": 2, "z": 2},)]),
-        ({"y": 2}, [({"x": 3, "z": 1},), ({"x": 4, "z": 2},)]),
-        ({"y": 3}, [({"x": 5, "z": 0},), ({"x": 6, "z": 0},)]),
-    ],
-)
-
-#########################################################
-
-data = [
-    {"x": [1, 2], "y": 1, "z": [1, 2]},
-    {"x": [3], "y": 2, "z": [1, 2]},
-    {"x": [], "y": 3, "z": [0, 0]},
-]
-
-pattern = [{"x": [bind("x"), ...], "y": bind("y"), "z": [bind("z"), ...]}, ...]
-
-
-VARIANT_A = {
-    "x": [[1, 2], [3], []],
-    "y": [1, 2, 3],
-    "z": [[1, 2], [1, 2], [0, 0]],
-}
-
-VARIANT_B = (
-    {},
-    [
-        ({"y": 1}, [({"x": 1, "z": 1},), ({"x": 2, "z": 2},)]),
-        ({"y": 2}, [({"x": 3, "z": 1},), ({"z": 2},)]),
-        ({"y": 3}, [({"z": 0},), ({"z": 0},)]),
-    ],
-)
-"""
+    assert bindings == {
+        "global_id": 42,
+        "t": Repeating([1, 3]),
+        "x": Repeating([Repeating([1, 2, 3, 4, 5]), Repeating([1, 3, 5])]),
+    }

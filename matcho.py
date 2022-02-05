@@ -59,12 +59,21 @@ class Default:
         return hash(self.key)
 
 
-def skip_if_missing(keys: list, pattern: Any):
-    return SkipIfMissing(keys, pattern)
+def skip_mismatch(pattern: Any):
+    return SkipOnMismatch(pattern)
 
 
 @dataclass
-class SkipIfMissing:
+class SkipOnMismatch:
+    pattern: Any
+
+
+def skip_missing_keys(keys: list, pattern: Any):
+    return SkipMissingKeys(keys, pattern)
+
+
+@dataclass
+class SkipMissingKeys:
     keys: list
     pattern: Any
 
@@ -78,7 +87,9 @@ def build_matcher(pattern):
     match pattern:
         case Bind(name):
             return build_binding_matcher(name)
-        case SkipIfMissing(keys, pattern):
+        case SkipOnMismatch(pattern):
+            return build_mismatch_transform(pattern, Mismatch, lambda _: True)
+        case SkipMissingKeys(keys, pattern):
             return build_mismatch_transform(pattern, KeyMismatch, lambda k: k in keys)
         case [*_]:
             return build_list_matcher(pattern)
