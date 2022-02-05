@@ -7,6 +7,10 @@ class Mismatch(Exception):
     pass
 
 
+class KeyMismatch(Mismatch):
+    pass
+
+
 class LiteralMismatch(Mismatch):
     pass
 
@@ -43,17 +47,19 @@ def build_matcher(pattern):
             return build_binding_matcher(name)
         case [*_]:
             return build_list_matcher(pattern)
+        case {}:
+            return build_dict_matcher(pattern)
         case _:
             return build_literal_matcher(pattern)
 
 
 def build_literal_matcher(pattern):
-    def literal_matcher(data):
+    def match_literal(data):
         if data == pattern:
             return {}
         raise LiteralMismatch(data, pattern)
 
-    return literal_matcher
+    return match_literal
 
 
 def build_binding_matcher(name):
@@ -61,12 +67,12 @@ def build_binding_matcher(name):
 
 
 def build_instance_matcher(expected_type):
-    def instance_matcher(data):
+    def match_instance(data):
         if isinstance(data, expected_type):
             return {}
         raise TypeMismatch(data, expected_type)
 
-    return instance_matcher
+    return match_instance
 
 
 def build_list_matcher(pattern):
@@ -76,10 +82,8 @@ def build_list_matcher(pattern):
     match pattern:
         case [Special.ELLIPSIS]:
             return build_instance_matcher(list)
-        case [item, Special.ELLIPSIS]:
-            return build_repeating_list_matcher(item)
-        case [*_, Special.ELLIPSIS]:
-            raise NotImplementedError()
+        case [*prefix, Special.ELLIPSIS]:
+            return build_repeating_list_matcher(prefix)
         case _:
             return build_fixed_list_matcher(pattern)
 
@@ -87,7 +91,7 @@ def build_list_matcher(pattern):
 def build_fixed_list_matcher(pattern):
     matchers = [build_matcher(p) for p in pattern]
 
-    def fixed_list_matcher(data):
+    def match_fixed_list(data):
         if not isinstance(data, list):
             raise ExpectedListMismatch(data)
 
@@ -96,27 +100,48 @@ def build_fixed_list_matcher(pattern):
 
         return reduce(or_, map(apply_first, zip(matchers, data)), {})
 
-    return fixed_list_matcher
+    return match_fixed_list
 
 
-def build_repeating_list_matcher(pattern):
-    item_matcher = build_matcher(pattern)
+def build_repeating_list_matcher(patterns):
+    repeating_matcher = build_matcher(patterns[-1])
+    prefix_matchers = [build_matcher(p) for p in patterns[:-1]]
+    n_prefix = len(prefix_matchers)
 
-    def repeating_matcher(data):
+    def match_repeating(data):
         if not isinstance(data, list):
             raise ExpectedListMismatch(data)
 
-        bindings = {}
+        if len(data) <= n_prefix:
+            raise LengthMismatch(len(data), n_prefix + 1)
 
-        for d in data:
-            bnd = item_matcher(d)
+        bindings = reduce(
+            or_, map(apply_first, zip(prefix_matchers[:n_prefix], data[:n_prefix])), {}
+        )
+
+        for d in data[n_prefix:]:
+            bnd = repeating_matcher(d)
 
             for k, v in bnd.items():
                 bindings.setdefault(k, Repeating([])).values.append(v)
 
         return bindings
 
-    return repeating_matcher
+    return match_repeating
+
+
+def build_dict_matcher(pattern):
+    matchers = {k: build_matcher(v) for k, v in pattern.items()}
+
+    def match_dict(data):
+        bindings = {}
+        for k, m in matchers.items():
+            if k not in data:
+                raise KeyMismatch(data, k)
+            bindings |= m(data[k])
+        return bindings
+
+    return match_dict
 
 
 def apply_first(seq):
