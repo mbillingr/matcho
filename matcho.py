@@ -3,10 +3,20 @@ from functools import reduce
 from operator import or_
 
 
-class Mismatch(Exception): pass
-class LiteralMismatch(Mismatch): pass
-class ExpectedListMismatch(Mismatch): pass
-class LengthMismatch(Mismatch): pass
+class Mismatch(Exception):
+    pass
+
+
+class LiteralMismatch(Mismatch):
+    pass
+
+
+class ExpectedListMismatch(Mismatch):
+    pass
+
+
+class LengthMismatch(Mismatch):
+    pass
 
 
 def bind(name: str):
@@ -20,9 +30,12 @@ class Bind:
 
 def build_matcher(pattern):
     match pattern:
-        case Bind(name): return build_binding_matcher(name)
-        case [*_]: return build_list_matcher(pattern)
-        case _: return build_literal_matcher(pattern)
+        case Bind(name):
+            return build_binding_matcher(name)
+        case [*_]:
+            return build_list_matcher(pattern)
+        case _:
+            return build_literal_matcher(pattern)
 
 
 def build_literal_matcher(pattern):
@@ -30,6 +43,7 @@ def build_literal_matcher(pattern):
         if data == pattern:
             return {}
         raise LiteralMismatch(data, pattern)
+
     return literal_matcher
 
 
@@ -40,9 +54,12 @@ def build_binding_matcher(name):
 def build_list_matcher(pattern):
     class Special:
         ELLIPSIS = ...
+
     match pattern:
-        case [*_, Special.ELLIPSIS]: raise NotImplementedError(...)
-        case _: return build_fixed_list_matcher(pattern)
+        case [*_, Special.ELLIPSIS]:
+            raise NotImplementedError(...)
+        case _:
+            return build_fixed_list_matcher(pattern)
 
 
 def build_fixed_list_matcher(pattern):
