@@ -5,7 +5,8 @@ from operator import or_
 
 __version__ = "0.0.0"
 
-from typing import Any
+
+from typing import Any, Hashable
 
 
 class Mismatch(Exception):
@@ -32,6 +33,10 @@ class LengthMismatch(Mismatch):
     pass
 
 
+class Skip(Exception):
+    pass
+
+
 def bind(name: str):
     return Bind(name)
 
@@ -41,17 +46,27 @@ class Bind:
     name: str
 
 
-def default(key, value):
+def default(key: Hashable, value: Any):
     return Default(key, value)
 
 
 @dataclass
 class Default:
-    key: Any
+    key: Hashable
     default_value: Any
 
     def __hash__(self):
         return hash(self.key)
+
+
+def skip_if_missing(keys: list, pattern: Any):
+    return SkipIfMissing(keys, pattern)
+
+
+@dataclass
+class SkipIfMissing:
+    keys: list
+    pattern: Any
 
 
 @dataclass
@@ -63,6 +78,8 @@ def build_matcher(pattern):
     match pattern:
         case Bind(name):
             return build_binding_matcher(name)
+        case SkipIfMissing(keys, pattern):
+            return build_mismatch_transform(pattern, KeyMismatch, lambda k: k in keys)
         case [*_]:
             return build_list_matcher(pattern)
         case {}:
@@ -138,7 +155,10 @@ def build_repeating_list_matcher(patterns):
         )
 
         for d in data[n_prefix:]:
-            bnd = repeating_matcher(d)
+            try:
+                bnd = repeating_matcher(d)
+            except Skip:
+                continue
 
             for k, v in bnd.items():
                 bindings.setdefault(k, Repeating([])).values.append(v)
@@ -159,6 +179,20 @@ def build_dict_matcher(pattern):
         return bindings
 
     return match_dict
+
+
+def build_mismatch_transform(pattern, mismatch_type, predicate):
+    matcher = build_matcher(pattern)
+
+    def error_handling_matcher(data):
+        try:
+            return matcher(data)
+        except mismatch_type as mm:
+            if predicate(mm.args[1]):
+                raise Skip()
+            raise
+
+    return error_handling_matcher
 
 
 def apply_first(seq):

@@ -4,6 +4,7 @@ from matcho import (
     bind,
     build_matcher,
     default,
+    skip_if_missing,
     KeyMismatch,
     LiteralMismatch,
     LengthMismatch,
@@ -123,6 +124,12 @@ def test_missing_key_in_repeating_dictionary():
 
 def test_key_with_defaults():
     assert build_matcher({default("x", 42): bind("y")})({}) == {"y": 42}
+
+
+def test_skippable_key_failure():
+    pattern = [skip_if_missing(["x"], {"x": bind("x")}), ...]
+    data = [{"x": 1}, {}, {"x": 2}]
+    assert build_matcher(pattern)(data) == {"x": Repeating([1, 2])}
 
 
 # Matching Rules
