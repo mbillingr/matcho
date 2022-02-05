@@ -3,6 +3,7 @@ import pytest
 from matcho import (
     bind,
     build_matcher,
+    default,
     KeyMismatch,
     LiteralMismatch,
     LengthMismatch,
@@ -107,6 +108,21 @@ def test_dictionary_matcher_with_bindings():
     assert build_matcher({})({}) == {}
     assert build_matcher({})({"x": 1}) == {}
     assert build_matcher({"x": bind("y")})({"x": 1}) == {"y": 1}
+
+
+def test_binding_of_repetition_containing_dictionaries():
+    assert build_matcher([{"x": bind("x")}, ...])([{"x": 1}, {"x": 2}]) == {
+        "x": Repeating([1, 2])
+    }
+
+
+def test_missing_key_in_repeating_dictionary():
+    with pytest.raises(KeyMismatch):
+        build_matcher([{"x": bind("x")}, ...])([{"x": 1}, {}, {"x": 2}])
+
+
+def test_key_with_defaults():
+    assert build_matcher({default("x", 42): bind("y")})({}) == {"y": 42}
 
 
 # Matching Rules

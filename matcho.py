@@ -3,6 +3,11 @@ from functools import reduce
 from operator import or_
 
 
+__version__ = "0.0.0"
+
+from typing import Any
+
+
 class Mismatch(Exception):
     pass
 
@@ -34,6 +39,19 @@ def bind(name: str):
 @dataclass
 class Bind:
     name: str
+
+
+def default(key, value):
+    return Default(key, value)
+
+
+@dataclass
+class Default:
+    key: Any
+    default_value: Any
+
+    def __hash__(self):
+        return hash(self.key)
 
 
 @dataclass
@@ -136,9 +154,8 @@ def build_dict_matcher(pattern):
     def match_dict(data):
         bindings = {}
         for k, m in matchers.items():
-            if k not in data:
-                raise KeyMismatch(data, k)
-            bindings |= m(data[k])
+            d = lookup(data, k)
+            bindings |= m(d)
         return bindings
 
     return match_dict
@@ -147,3 +164,15 @@ def build_dict_matcher(pattern):
 def apply_first(seq):
     f, *args = seq
     return f(*args)
+
+
+def lookup(mapping, key):
+    if isinstance(key, Default):
+        return mapping.get(key.key, key.default_value)
+
+    try:
+        return mapping[key]
+    except KeyError:
+        pass
+
+    raise KeyMismatch(mapping, key)
