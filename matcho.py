@@ -122,6 +122,8 @@ def build_list_matcher(pattern):
         ELLIPSIS = ...
 
     match pattern:
+        case [*prefix, last] if last is not ... and ... in prefix:
+            raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
         case [Special.ELLIPSIS]:
             return build_instance_matcher(list)
         case [*prefix, Special.ELLIPSIS]:
@@ -258,6 +260,8 @@ def build_list_template(template):
         ELLIPSIS = ...
 
     match template:
+        case [*prefix, last] if last is not ... and ... in prefix:
+            raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
         case [*items, Special.ELLIPSIS, Special.ELLIPSIS]:
             return build_flattened_list(items)
         case [*items, rep, Special.ELLIPSIS]:
@@ -327,10 +331,16 @@ def common_repetition_length(bindings, nesting_level, used_names):
     for name in used_names:
         value = get_nested(bindings[name], nesting_level)
         if isinstance(value, Repeating):
+            multiplicity = len(value.values)
             if length is None:
-                length = len(value.values)
+                length = multiplicity
             else:
-                assert length == len(value.values)
+                if multiplicity != length:
+                    raise ValueError(
+                        f"{name}'s number of values {multiplicity} "
+                        f"does not match other bindings of length {length}"
+                    )
+                assert length == multiplicity
 
     return length
 

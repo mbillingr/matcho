@@ -107,6 +107,11 @@ def test_repeating_list_matching_with_prefix_and_binding():
     assert build_matcher([1, bind("x"), ...])([1, 2, 3]) == {"x": Repeating([2, 3])}
 
 
+def test_invalid_ellipsis_position_in_matcher():
+    with pytest.raises(ValueError, match="ellipsis"):
+        build_matcher([0, 1, ..., 2, 3])
+
+
 def test_dictionary_matcher():
     assert build_matcher({})({}) == {}
     assert build_matcher({})({"x": 1}) == {}
@@ -368,3 +373,21 @@ def test_deep_flat_broadcasting():
         [2, 6, 9],
         [2, 6, 0],
     ]
+
+
+def test_repeat_length_mismatch():
+    template = build_template([[insert("x"), insert("y")], ...])
+    bindings = {"x": Repeating([1, 2, 3]), "y": Repeating([1, 2])}
+    with pytest.raises(ValueError):
+        template(bindings)
+
+
+def test_invalid_ellipsis_position_in_template():
+    with pytest.raises(ValueError, match="ellipsis"):
+        build_template([..., 0])
+
+    with pytest.raises(ValueError, match="ellipsis"):
+        build_template([..., 0, 1])
+
+    with pytest.raises(ValueError, match="ellipsis"):
+        build_template([0, 1, ..., 2, 3])
