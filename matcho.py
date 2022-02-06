@@ -446,6 +446,9 @@ def common_repetition_length(bindings, nesting_level, used_names):
                     )
                 assert length == multiplicity
 
+    if length is None:
+        raise ValueError("no repeated bindings")
+
     return length
 
 

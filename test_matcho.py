@@ -18,6 +18,58 @@ from matcho import (
 )
 
 
+def test_readme():
+    matcher = build_matcher([bind("x"), ...])
+    bindings = matcher([1, 2, 3])
+    template = build_template([insert("x"), ...])
+    assert template(bindings) == [1, 2, 3]
+
+    data = {
+        "date": "2022-02-20",
+        "uid": "DEADBEEF",
+        "reports": [
+            {
+                "station": 7,
+                "events": [{"time": 1300, "type": "ON"}, {"time": 1700, "type": "OFF"}],
+            },
+            {
+                "station": 5,
+                "events": [{"time": 1100, "type": "ON"}, {"time": 1800, "type": "OFF"}],
+            },
+        ],
+    }
+
+    pattern = {
+        "date": bind("date"),
+        "reports": [
+            {
+                "station": bind("station"),
+                "events": [{"time": bind("time"), "type": bind("event_type")}, ...],
+            },
+            ...,  # note that the ... really are Python syntax
+        ],
+    }
+
+    template_spec = [
+        [insert("date"), insert("time"), insert("station"), insert("event_type")],
+        ...,
+        ...,
+    ]
+
+    matcher = build_matcher(pattern)
+    bindings = matcher(data)
+
+    template = build_template(template_spec)
+    table = template(bindings)
+
+    assert table == [
+        ["2022-02-20", 1300, 7, "ON"],
+        ["2022-02-20", 1700, 7, "OFF"],
+        ["2022-02-20", 1100, 5, "ON"],
+        ["2022-02-20", 1800, 5, "OFF"],
+    ]
+
+
 def test_match_literal():
     pattern = 123
     matcher = build_matcher(pattern)
