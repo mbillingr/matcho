@@ -1,3 +1,11 @@
+"""
+Structural pattern matching and template reconstruction.
+
+The two primary API functions are `build_matcher` and `build_template`.
+A few helper functions complement the matcher: `bind`, `default`, `skip_mismatch`, `skip_missing_keys`.
+Templates may use the `insert` helper function.
+"""
+
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
@@ -10,30 +18,31 @@ from typing import Any, Hashable
 
 
 class Mismatch(Exception):
-    pass
+    """The data does not match the pattern"""
 
 
 class KeyMismatch(Mismatch):
-    pass
+    """The data does not contain a dictionary key required by the pattern."""
 
 
 class LiteralMismatch(Mismatch):
-    pass
+    """The data is not equal to the pattern."""
 
 
 class TypeMismatch(Mismatch):
-    pass
+    """The data has the wrong type."""
 
 
 class LengthMismatch(Mismatch):
-    pass
+    """The data has the wrong length."""
 
 
 class Skip(Exception):
-    pass
+    """If inside a variable sequence matcher, skip the current element."""
 
 
 def bind(name: str):
+    """Match any data and bind it to the name."""
     return Bind(name)
 
 
@@ -43,6 +52,7 @@ class Bind:
 
 
 def default(key: Hashable, value: Any):
+    """Allow a key not to be present in the data by providing a default value."""
     return Default(key, value)
 
 
@@ -56,6 +66,7 @@ class Default:
 
 
 def skip_mismatch(pattern: Any):
+    """Skip the current item in a variable sequence matcher if the wrapped pattern does not match the data."""
     return SkipOnMismatch(pattern)
 
 
@@ -65,6 +76,7 @@ class SkipOnMismatch:
 
 
 def skip_missing_keys(keys: list, pattern: Any):
+    """Skip the current item in a variable sequence matcher if one of the given keys is not present in the data."""
     return SkipMissingKeys(keys, pattern)
 
 
@@ -76,10 +88,20 @@ class SkipMissingKeys:
 
 @dataclass
 class Repeating:
+    """A repeated binding."""
+
     values: list
 
 
 def build_matcher(pattern):
+    """Build a matcher from the given pattern.
+
+    The matcher is an object that can be called with the data to match against
+    the pattern. If the match is successful, it returns a set of bindings.
+    If the data can't be matched, a `Mismatch` exception is raised.
+
+    The bindings may then be substituted in a template constructed by `build_template`.
+    """
     match pattern:
         case Bind(name):
             return build_binding_matcher(name)
@@ -96,6 +118,12 @@ def build_matcher(pattern):
 
 
 def build_literal_matcher(pattern):
+    """Build a matcher for data that must be equal to a pattern.
+
+    Typically, `build_matcher` should be used instead, which delegates to
+    this function where appropriate.
+    """
+
     def match_literal(data):
         if data == pattern:
             return {}
@@ -105,10 +133,21 @@ def build_literal_matcher(pattern):
 
 
 def build_binding_matcher(name):
+    """Build a matcher that binds the data to the given name.
+
+    Typically, `build_matcher` should be used instead, which delegates to
+    this function where appropriate.
+    """
     return lambda data: {name: data}
 
 
 def build_instance_matcher(expected_type):
+    """Build a matcher that matches any data of given type.
+
+    Typically, `build_matcher` should be used instead, which delegates to
+    this function where appropriate.
+    """
+
     def match_instance(data):
         if isinstance(data, expected_type):
             return {}
@@ -118,6 +157,12 @@ def build_instance_matcher(expected_type):
 
 
 def build_list_matcher(pattern):
+    """Build a matcher that matches lists.
+
+    Typically, `build_matcher` should be used instead, which delegates to
+    this function where appropriate.
+    """
+
     class Special:
         ELLIPSIS = ...
 
@@ -133,6 +178,11 @@ def build_list_matcher(pattern):
 
 
 def build_fixed_list_matcher(pattern):
+    """Build a matcher that matches lists of fixed length.
+
+    Typically, `build_matcher` should be used instead, which delegates to
+    this function where appropriate.
+    """
     matchers = [build_matcher(p) for p in pattern]
 
     def match_fixed_list(data):
@@ -148,6 +198,11 @@ def build_fixed_list_matcher(pattern):
 
 
 def build_repeating_list_matcher(patterns):
+    """Build a matcher that matches lists of variable length.
+
+    Typically, `build_matcher` should be used instead, which delegates to
+    this function where appropriate.
+    """
     repeating_matcher = build_matcher(patterns[-1])
     prefix_matchers = [build_matcher(p) for p in patterns[:-1]]
     n_prefix = len(prefix_matchers)
@@ -178,6 +233,11 @@ def build_repeating_list_matcher(patterns):
 
 
 def build_dict_matcher(pattern):
+    """Build a matcher that matches dictionaries.
+
+    Typically, `build_matcher` should be used instead, which delegates to
+    this function where appropriate.
+    """
     matchers = {k: build_matcher(v) for k, v in pattern.items()}
 
     def match_dict(data):
@@ -191,6 +251,11 @@ def build_dict_matcher(pattern):
 
 
 def build_mismatch_skipper(pattern, mismatch_type, predicate=lambda _: True):
+    """Build a matcher that replaces exceptions of a given type with `Skip` exceptions.
+
+    Typically, `build_matcher` should be used instead, which delegates to
+    this function where appropriate.
+    """
     matcher = build_matcher(pattern)
 
     def error_handling_matcher(data):
@@ -205,11 +270,18 @@ def build_mismatch_skipper(pattern, mismatch_type, predicate=lambda _: True):
 
 
 def apply_first(seq):
+    """Call the first item in a sequence with the remaining
+    sequence as positional arguments."""
     f, *args = seq
     return f(*args)
 
 
 def lookup(mapping, key):
+    """Lookup a key in a mapping.
+
+    If the mapping does not contain the key a `KeyMismatch` is raised, unless
+    the key is a `Default`. In the latter case, its default value is returned.
+    """
     if isinstance(key, Default):
         return mapping.get(key.key, key.default_value)
 
@@ -222,6 +294,7 @@ def lookup(mapping, key):
 
 
 def insert(name):
+    """Mark a place in the template where to insert the value bound to name."""
     return Insert(name)
 
 
@@ -233,19 +306,31 @@ class Insert:
         return hash(self.name)
 
 
-def build_template(template):
-    match template:
+def build_template(spec):
+    """Build a template from a specification.
+
+    The resulting template is an object that when called with a set of
+    bindings (as produced by a matcher from `build_matcher`), returns
+    an instance of the template with names substituted by their bound values.
+    """
+    match spec:
         case Insert(name):
             return build_insertion_template(name)
         case list(_):
-            return build_list_template(template)
+            return build_list_template(spec)
         case dict(_):
-            return build_dict_template(template)
+            return build_dict_template(spec)
         case _:
-            return lambda *_: template
+            return lambda *_: spec
 
 
 def build_insertion_template(name):
+    """Build a template that is substituted with values bound to name.
+
+    Typically, `build_template` should be used instead, which delegates to
+    this function where appropriate.
+    """
+
     def instantiate(bindings, nesting_level=()):
         value = get_nested(bindings[name], nesting_level)
         if isinstance(value, Repeating):
@@ -256,6 +341,12 @@ def build_insertion_template(name):
 
 
 def build_list_template(template):
+    """Build a template that constructs lists.
+
+    Typically, `build_template` should be used instead, which delegates to
+    this function where appropriate.
+    """
+
     class Special:
         ELLIPSIS = ...
 
@@ -271,6 +362,11 @@ def build_list_template(template):
 
 
 def build_flattened_list(items):
+    """Build a template that flattens one level of nesting.
+
+    Typically, `build_template` should be used instead, which delegates to
+    this function where appropriate.
+    """
     deep_template = build_list_template([[*items, ...], ...])
 
     def instantiate(bindings, nesting_level=()):
@@ -280,6 +376,8 @@ def build_flattened_list(items):
 
 
 def flatten(sequence):
+    """Remove one level of nesting from a sequence of sequences
+    by concatenating all inner sequences to one list."""
     result = []
     for s in sequence:
         result.extend(s)
@@ -287,6 +385,11 @@ def flatten(sequence):
 
 
 def build_actual_list_template(items, rep=None):
+    """Build a template that constructs lists.
+
+    Typically, `build_template` should be used instead, which delegates to
+    this function where appropriate.
+    """
     fixed_instantiators = [build_template(t) for t in items]
 
     def instantiate(bindings, nesting_level=()):
@@ -327,6 +430,7 @@ def find_insertions(template):
 
 
 def common_repetition_length(bindings, nesting_level, used_names):
+    """Try to find a common length suitable for all used bindings at given nesting level."""
     length = None
     for name in used_names:
         value = get_nested(bindings[name], nesting_level)
@@ -346,6 +450,11 @@ def common_repetition_length(bindings, nesting_level, used_names):
 
 
 def build_dict_template(template):
+    """Build a template that constructs lists.
+
+    Typically, `build_template` should be used instead, which delegates to
+    this function where appropriate.
+    """
     item_instantiators = {
         build_template(k): build_template(v) for k, v in template.items()
     }
@@ -360,6 +469,7 @@ def build_dict_template(template):
 
 
 def get_nested(value, nesting_level):
+    """Get the value of nested repeated bindings."""
     while nesting_level != ():
         if not isinstance(value, Repeating):
             break
