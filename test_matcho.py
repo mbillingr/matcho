@@ -2,7 +2,6 @@ import pytest
 
 from matcho import (
     bind,
-    broadcast,
     build_matcher,
     build_mismatch_skipper,
     build_template,
@@ -234,19 +233,6 @@ def test_contrived_example():
         "t": Repeating([1, 3]),
         "x": Repeating([Repeating([1, 2, 3, 4, 5]), Repeating([1, 3, 5])]),
     }
-
-
-def test_broacdast():
-    assert broadcast({"x": 1, "y": 2}) == {"x": 1, "y": 2}
-    assert broadcast({"x": 1, "y": Repeating([])}) == {"x": [], "y": []}
-    assert broadcast({"x": 1, "y": Repeating([2, 3])}) == {"x": [1, 1], "y": [2, 3]}
-    assert broadcast({"x": Repeating([0, 1]), "y": Repeating([2, 3])}) == {
-        "x": [0, 1],
-        "y": [2, 3],
-    }
-    assert broadcast(
-        {"x": 1, "y": Repeating([Repeating([2, 3]), Repeating([3, 4])])}
-    ) == {"x": [[1, 1], [1, 1]], "y": [[2, 3], [3, 4]]}
 
 
 def test_trivial_templates_without_binding():
