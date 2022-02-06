@@ -4,6 +4,7 @@ from matcho import (
     bind,
     broadcast,
     build_matcher,
+    build_mismatch_skipper,
     default,
     skip_mismatch,
     skip_missing_keys,
@@ -11,6 +12,8 @@ from matcho import (
     LiteralMismatch,
     LengthMismatch,
     Repeating,
+    TypeMismatch,
+    Skip,
 )
 
 
@@ -48,6 +51,9 @@ def test_simple_list_matching():
     with pytest.raises(LengthMismatch):
         build_matcher([bind("x"), bind("y")])([1, 2, 3])
 
+    with pytest.raises(TypeMismatch):
+        build_matcher([])("not-a-list")
+
 
 def test_repeating_list_matching():
     assert build_matcher([...])([]) == {}
@@ -57,6 +63,12 @@ def test_repeating_list_matching():
 
     with pytest.raises(LiteralMismatch):
         build_matcher([1, ...])([2])
+
+    with pytest.raises(TypeMismatch):
+        build_matcher([...])("not-a-list")
+
+    with pytest.raises(TypeMismatch):
+        build_matcher([1, ...])("not-a-list")
 
 
 def test_repeating_list_matching_with_binding():
@@ -132,6 +144,37 @@ def test_skippable_key_failure():
     pattern = [skip_missing_keys(["x"], {"x": bind("x")}), ...]
     data = [{"x": 1}, {}, {"x": 2}]
     assert build_matcher(pattern)(data) == {"x": Repeating([1, 2])}
+
+
+def test_mismatch_skipper_replaces_selected_exception_with_skip():
+    with pytest.raises(Skip):
+        build_mismatch_skipper(0, LiteralMismatch)(1)
+
+
+def test_mismatch_skipper_passes_through_other_exceptions():
+    with pytest.raises(LiteralMismatch):
+        build_mismatch_skipper(0, LengthMismatch)(1)
+
+
+def test_mismatch_skipper_passes_through_if_predicate_returns_false():
+    with pytest.raises(LiteralMismatch):
+        build_mismatch_skipper(0, LiteralMismatch, lambda _: False)(1)
+
+
+def test_mismatch_skipper_predicate_recieves_expectation():
+    class MockPredicate:
+        called_with = None
+
+        def __call__(self, *args):
+            self.called_with = args
+            return False
+
+    pred = MockPredicate()
+    try:
+        build_mismatch_skipper(0, LiteralMismatch, pred)(1)
+    except LiteralMismatch:
+        pass
+    assert pred.called_with == (0,)
 
 
 def test_skippable_list_item():

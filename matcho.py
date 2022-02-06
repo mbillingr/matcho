@@ -25,10 +25,6 @@ class TypeMismatch(Mismatch):
     pass
 
 
-class ExpectedListMismatch(Mismatch):
-    pass
-
-
 class LengthMismatch(Mismatch):
     pass
 
@@ -88,9 +84,9 @@ def build_matcher(pattern):
         case Bind(name):
             return build_binding_matcher(name)
         case SkipOnMismatch(pattern):
-            return build_mismatch_transform(pattern, Mismatch, lambda _: True)
+            return build_mismatch_skipper(pattern, Mismatch, lambda _: True)
         case SkipMissingKeys(keys, pattern):
-            return build_mismatch_transform(pattern, KeyMismatch, lambda k: k in keys)
+            return build_mismatch_skipper(pattern, KeyMismatch, lambda k: k in keys)
         case [*_]:
             return build_list_matcher(pattern)
         case {}:
@@ -139,7 +135,7 @@ def build_fixed_list_matcher(pattern):
 
     def match_fixed_list(data):
         if not isinstance(data, list):
-            raise ExpectedListMismatch(data)
+            raise TypeMismatch(data, list)
 
         if len(data) != len(matchers):
             raise LengthMismatch(len(data), len(matchers))
@@ -156,7 +152,7 @@ def build_repeating_list_matcher(patterns):
 
     def match_repeating(data):
         if not isinstance(data, list):
-            raise ExpectedListMismatch(data)
+            raise TypeMismatch(data, list)
 
         if len(data) <= n_prefix:
             raise LengthMismatch(len(data), n_prefix + 1)
@@ -192,7 +188,7 @@ def build_dict_matcher(pattern):
     return match_dict
 
 
-def build_mismatch_transform(pattern, mismatch_type, predicate):
+def build_mismatch_skipper(pattern, mismatch_type, predicate=lambda _: True):
     matcher = build_matcher(pattern)
 
     def error_handling_matcher(data):
