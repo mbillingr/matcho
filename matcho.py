@@ -249,3 +249,142 @@ def _broadcast(*bound_values):
 
     tmp = [_broadcast(*x) for x in zip(*values)]
     return list(map(list, zip(*tmp)))
+
+
+def insert(name):
+    return Insert(name)
+
+
+@dataclass
+class Insert:
+    name: str
+
+    def __hash__(self):
+        return hash(self.name)
+
+
+def build_template(template):
+    match template:
+        case Insert(name):
+            return build_insertion_template(name)
+        case list(_):
+            return build_list_template(template)
+        case dict(_):
+            return build_dict_template(template)
+        case _:
+            return lambda *_: template
+
+
+def build_insertion_template(name):
+    def instantiate(bindings, nesting_level=()):
+        value = get_nested(bindings[name], nesting_level)
+        if isinstance(value, Repeating):
+            raise ValueError(f"{name} is still repeating at this level")
+        return value
+
+    return instantiate
+
+
+def build_list_template(template):
+    class Special:
+        ELLIPSIS = ...
+
+    match template:
+        case [*items, Special.ELLIPSIS, Special.ELLIPSIS]:
+            return build_flattened_list(items)
+        case [*items, rep, Special.ELLIPSIS]:
+            return build_actual_list_template(items, rep)
+        case [*items]:
+            return build_actual_list_template(items)
+
+
+def build_flattened_list(items):
+    deep_template = build_list_template([[*items, ...], ...])
+
+    def instantiate(bindings, nesting_level=()):
+        return flatten(deep_template(bindings, nesting_level))
+
+    return instantiate
+
+
+def flatten(sequence):
+    result = []
+    for s in sequence:
+        result.extend(s)
+    return result
+
+
+def build_actual_list_template(items, rep=None):
+    fixed_instantiators = [build_template(t) for t in items]
+
+    def instantiate(bindings, nesting_level=()):
+        return [x(bindings, nesting_level) for x in fixed_instantiators]
+
+    if rep is None:
+        return instantiate
+
+    names_in_rep = find_insertions(rep)
+    rep_instantiator = build_template(rep)
+
+    def instantiate_repeating(bindings, nesting_level=()):
+        fixed_part = instantiate(bindings)
+
+        rep_len = common_repetition_length(bindings, nesting_level, names_in_rep)
+        variable_part = [
+            rep_instantiator(bindings, nesting_level + (i,)) for i in range(rep_len)
+        ]
+        return fixed_part + variable_part
+
+    return instantiate_repeating
+
+
+def find_insertions(template):
+    """find all names inserted in given template"""
+    names = set()
+    match template:
+        case Insert(name):
+            names.add(name)
+        case list():
+            for x in template:
+                names |= find_insertions(x)
+        case dict():
+            for k, v in template.items():
+                names |= find_insertions(k)
+                names |= find_insertions(v)
+    return names
+
+
+def common_repetition_length(bindings, nesting_level, used_names):
+    length = None
+    for name in used_names:
+        value = get_nested(bindings[name], nesting_level)
+        if isinstance(value, Repeating):
+            if length is None:
+                length = len(value.values)
+            else:
+                assert length == len(value.values)
+
+    return length
+
+
+def build_dict_template(template):
+    item_instantiators = {
+        build_template(k): build_template(v) for k, v in template.items()
+    }
+
+    def instantiate(bindings, nesting_level=()):
+        return {
+            k(bindings, nesting_level): v(bindings, nesting_level)
+            for k, v in item_instantiators.items()
+        }
+
+    return instantiate
+
+
+def get_nested(value, nesting_level):
+    while nesting_level != ():
+        if not isinstance(value, Repeating):
+            break
+        value = value.values[nesting_level[0]]
+        nesting_level = nesting_level[1:]
+    return value
