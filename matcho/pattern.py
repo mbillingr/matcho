@@ -1,44 +1,19 @@
-"""
-Structural pattern matching and template reconstruction.
-
-The two primary API functions are `build_matcher` and `build_template`.
-A few helper functions complement the matcher: `bind`, `default`, `skip_mismatch`, `skip_missing_keys`.
-Templates may use the `insert` helper function.
-"""
-
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
-
-
-__version__ = "0.0.0"
-
-
 from typing import Any, Hashable
 
+from matcho import (
+    KeyMismatch,
+    LengthMismatch,
+    LiteralMismatch,
+    Mismatch,
+    Skip,
+    TypeMismatch,
+)
+from matcho.bindings import Repeating
 
-class Mismatch(Exception):
-    """The data does not match the pattern"""
-
-
-class KeyMismatch(Mismatch):
-    """The data does not contain a dictionary key required by the pattern."""
-
-
-class LiteralMismatch(Mismatch):
-    """The data is not equal to the pattern."""
-
-
-class TypeMismatch(Mismatch):
-    """The data has the wrong type."""
-
-
-class LengthMismatch(Mismatch):
-    """The data has the wrong length."""
-
-
-class Skip(Exception):
-    """If inside a variable sequence matcher, skip the current element."""
+__all__ = ["bind", "build_matcher", "default", "skip_mismatch", "skip_missing_keys"]
 
 
 def bind(name: str):
@@ -84,13 +59,6 @@ def skip_missing_keys(keys: list, pattern: Any):
 class SkipMissingKeys:
     keys: list
     pattern: Any
-
-
-@dataclass
-class Repeating:
-    """A repeated binding."""
-
-    values: list
 
 
 def build_matcher(pattern):
@@ -291,191 +259,3 @@ def lookup(mapping, key):
         pass
 
     raise KeyMismatch(mapping, key)
-
-
-def insert(name):
-    """Mark a place in the template where to insert the value bound to name."""
-    return Insert(name)
-
-
-@dataclass
-class Insert:
-    name: str
-
-    def __hash__(self):
-        return hash(self.name)
-
-
-def build_template(spec):
-    """Build a template from a specification.
-
-    The resulting template is an object that when called with a set of
-    bindings (as produced by a matcher from `build_matcher`), returns
-    an instance of the template with names substituted by their bound values.
-    """
-    match spec:
-        case Insert(name):
-            return build_insertion_template(name)
-        case list(_):
-            return build_list_template(spec)
-        case dict(_):
-            return build_dict_template(spec)
-        case _:
-            return lambda *_: spec
-
-
-def build_insertion_template(name):
-    """Build a template that is substituted with values bound to name.
-
-    Typically, `build_template` should be used instead, which delegates to
-    this function where appropriate.
-    """
-
-    def instantiate(bindings, nesting_level=()):
-        value = get_nested(bindings[name], nesting_level)
-        if isinstance(value, Repeating):
-            raise ValueError(f"{name} is still repeating at this level")
-        return value
-
-    return instantiate
-
-
-def build_list_template(template):
-    """Build a template that constructs lists.
-
-    Typically, `build_template` should be used instead, which delegates to
-    this function where appropriate.
-    """
-
-    class Special:
-        ELLIPSIS = ...
-
-    match template:
-        case [*prefix, last] if last is not ... and ... in prefix:
-            raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
-        case [*items, Special.ELLIPSIS, Special.ELLIPSIS]:
-            return build_flattened_list(items)
-        case [*items, rep, Special.ELLIPSIS]:
-            return build_actual_list_template(items, rep)
-        case [*items]:
-            return build_actual_list_template(items)
-
-
-def build_flattened_list(items):
-    """Build a template that flattens one level of nesting.
-
-    Typically, `build_template` should be used instead, which delegates to
-    this function where appropriate.
-    """
-    deep_template = build_list_template([[*items, ...], ...])
-
-    def instantiate(bindings, nesting_level=()):
-        return flatten(deep_template(bindings, nesting_level))
-
-    return instantiate
-
-
-def flatten(sequence):
-    """Remove one level of nesting from a sequence of sequences
-    by concatenating all inner sequences to one list."""
-    result = []
-    for s in sequence:
-        result.extend(s)
-    return result
-
-
-def build_actual_list_template(items, rep=None):
-    """Build a template that constructs lists.
-
-    Typically, `build_template` should be used instead, which delegates to
-    this function where appropriate.
-    """
-    fixed_instantiators = [build_template(t) for t in items]
-
-    def instantiate(bindings, nesting_level=()):
-        return [x(bindings, nesting_level) for x in fixed_instantiators]
-
-    if rep is None:
-        return instantiate
-
-    names_in_rep = find_insertions(rep)
-    rep_instantiator = build_template(rep)
-
-    def instantiate_repeating(bindings, nesting_level=()):
-        fixed_part = instantiate(bindings)
-
-        rep_len = common_repetition_length(bindings, nesting_level, names_in_rep)
-        variable_part = [
-            rep_instantiator(bindings, nesting_level + (i,)) for i in range(rep_len)
-        ]
-        return fixed_part + variable_part
-
-    return instantiate_repeating
-
-
-def find_insertions(template):
-    """find all names inserted in given template"""
-    names = set()
-    match template:
-        case Insert(name):
-            names.add(name)
-        case list():
-            for x in template:
-                names |= find_insertions(x)
-        case dict():
-            for k, v in template.items():
-                names |= find_insertions(k)
-                names |= find_insertions(v)
-    return names
-
-
-def common_repetition_length(bindings, nesting_level, used_names):
-    """Try to find a common length suitable for all used bindings at given nesting level."""
-    length = None
-    for name in used_names:
-        value = get_nested(bindings[name], nesting_level)
-        if isinstance(value, Repeating):
-            multiplicity = len(value.values)
-            if length is None:
-                length = multiplicity
-            else:
-                if multiplicity != length:
-                    raise ValueError(
-                        f"{name}'s number of values {multiplicity} "
-                        f"does not match other bindings of length {length}"
-                    )
-                assert length == multiplicity
-
-    if length is None:
-        raise ValueError("no repeated bindings")
-
-    return length
-
-
-def build_dict_template(template):
-    """Build a template that constructs lists.
-
-    Typically, `build_template` should be used instead, which delegates to
-    this function where appropriate.
-    """
-    item_instantiators = {
-        build_template(k): build_template(v) for k, v in template.items()
-    }
-
-    def instantiate(bindings, nesting_level=()):
-        return {
-            k(bindings, nesting_level): v(bindings, nesting_level)
-            for k, v in item_instantiators.items()
-        }
-
-    return instantiate
-
-
-def get_nested(value, nesting_level):
-    """Get the value of nested repeated bindings."""
-    while nesting_level != ():
-        if not isinstance(value, Repeating):
-            break
-        value = value.values[nesting_level[0]]
-        nesting_level = nesting_level[1:]
-    return value

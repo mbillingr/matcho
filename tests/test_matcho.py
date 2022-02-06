@@ -1,9 +1,10 @@
 import pytest
 
+from matcho.bindings import Repeating
+from matcho.pattern import build_mismatch_skipper
 from matcho import (
     bind,
     build_matcher,
-    build_mismatch_skipper,
     build_template,
     default,
     insert,
@@ -12,7 +13,6 @@ from matcho import (
     KeyMismatch,
     LiteralMismatch,
     LengthMismatch,
-    Repeating,
     TypeMismatch,
     Skip,
 )
