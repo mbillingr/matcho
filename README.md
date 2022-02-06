@@ -1,7 +1,7 @@
 # Matcho
 A pattern matching and template library.
 
-Macho was originally written by a need to convert hierarchical
+Matcho was originally written by a need to convert hierarchical
 JSON data into flattish data frames. It may yet transcend this purpose.
 
 ## Installation
