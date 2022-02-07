@@ -14,7 +14,7 @@ from matcho import (
     LengthMismatch,
     Mismatch,
     TypeMismatch,
-    Skip,
+    Skip, CastMismatch,
 )
 
 
@@ -217,13 +217,22 @@ def test_casting_binds():
     assert matcher(42) == {"x": 42}
     assert matcher("42") == {"x": 42}
 
-    with pytest.raises(TypeMismatch):
+    with pytest.raises(CastMismatch):
         matcher("not-an-int")
 
 
 def test_bind_as():
-    pattern = bind_as("x", [...])
-    assert build_matcher(pattern)([1, 2]) == {"x": [1, 2]}
+    matcher = build_matcher(bind_as("x", [...]))
+    assert matcher([1, 2]) == {"x": [1, 2]}
 
     with pytest.raises(Mismatch):
-        build_matcher(pattern)("not-a-list")
+        matcher("not-a-list")
+
+
+def test_match_type():
+    matcher = build_matcher(int)
+    assert matcher(42) == {}
+    assert matcher("42") == {}
+
+    with pytest.raises(CastMismatch):
+        matcher("not-an-int")

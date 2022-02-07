@@ -14,6 +14,10 @@ class TypeMismatch(Mismatch):
     """The data has the wrong type."""
 
 
+class CastMismatch(Mismatch):
+    """The data can't be cast to the desired type."""
+
+
 class LengthMismatch(Mismatch):
     """The data has the wrong length."""
 

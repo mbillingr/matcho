@@ -9,7 +9,7 @@ from matcho import (
     LiteralMismatch,
     Mismatch,
     Skip,
-    TypeMismatch,
+    TypeMismatch, CastMismatch,
 )
 from matcho.bindings import Repeating
 
@@ -38,7 +38,7 @@ class Bind:
             try:
                 value = self.dtype(value)
             except Exception:
-                raise TypeMismatch(value, self.dtype)
+                raise CastMismatch(value, self.dtype)
         return {self.name: value}
 
 
@@ -110,6 +110,8 @@ def build_matcher(pattern):
             return build_list_matcher(pattern)
         case {}:
             return build_dict_matcher(pattern)
+        case type():
+            return build_type_matcher(pattern)
         case _:
             return build_literal_matcher(pattern)
 
@@ -158,6 +160,23 @@ def build_instance_matcher(expected_type):
         raise TypeMismatch(data, expected_type)
 
     return match_instance
+
+
+def build_type_matcher(expected_type):
+    """Build a matcher that matches any data that can be cast to given type.
+
+    Typically, `build_matcher` should be used instead, which delegates to
+    this function where appropriate.
+    """
+
+    def match_type(data):
+        try:
+            _ = expected_type(data)
+        except Exception:
+            raise CastMismatch(data, expected_type)
+        return {}
+
+    return match_type
 
 
 def build_list_matcher(pattern):
