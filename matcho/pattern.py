@@ -102,23 +102,24 @@ def build_matcher(pattern):
 
     The bindings may then be substituted in a template constructed by `build_template`.
     """
-    match pattern:
-        case Bind(_):
-            return pattern.bind
-        case BindAs(_):
-            return build_binding_matcher(pattern)
-        case SkipOnMismatch(pattern):
-            return build_mismatch_skipper(pattern, Mismatch, lambda _: True)
-        case SkipMissingKeys(keys, pattern):
-            return build_mismatch_skipper(pattern, KeyMismatch, lambda k: k in keys)
-        case [*_]:
-            return build_list_matcher(pattern)
-        case {}:
-            return build_dict_matcher(pattern)
-        case type():
-            return build_type_matcher(pattern)
-        case _:
-            return build_literal_matcher(pattern)
+    if isinstance(pattern, Bind):
+        return pattern.bind
+    elif isinstance(pattern, BindAs):
+        return build_binding_matcher(pattern)
+    elif isinstance(pattern, SkipOnMismatch):
+        return build_mismatch_skipper(pattern.pattern, Mismatch, lambda _: True)
+    elif isinstance(pattern, SkipMissingKeys):
+        return build_mismatch_skipper(
+            pattern.pattern, KeyMismatch, lambda k: k in pattern.keys
+        )
+    elif isinstance(pattern, list):
+        return build_list_matcher(pattern)
+    elif isinstance(pattern, dict):
+        return build_dict_matcher(pattern)
+    elif isinstance(pattern, type):
+        return build_type_matcher(pattern)
+    else:
+        return build_literal_matcher(pattern)
 
 
 def build_literal_matcher(pattern):
@@ -147,7 +148,7 @@ def build_binding_matcher(binder: BindAs):
     def matcher(data):
         try:
             bindings = inner_matcher(data)
-            bindings |= {binder.name: data}
+            bindings[binder.name] = data
         except Mismatch:
             if binder.default is NOT_SET:
                 raise
@@ -195,19 +196,14 @@ def build_list_matcher(pattern):
     Typically, `build_matcher` should be used instead, which delegates to
     this function where appropriate.
     """
-
-    class Special:
-        ELLIPSIS = ...
-
-    match pattern:
-        case [*prefix, last] if last is not ... and ... in prefix:
-            raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
-        case [Special.ELLIPSIS]:
-            return build_instance_matcher(list)
-        case [*prefix, Special.ELLIPSIS]:
-            return build_repeating_list_matcher(prefix)
-        case _:
-            return build_fixed_list_matcher(pattern)
+    if len(pattern) > 1 and pattern[-1] is not ... and ... in pattern:
+        raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
+    elif pattern == [...]:
+        return build_instance_matcher(list)
+    elif len(pattern) > 1 and pattern[-1] is ...:
+        return build_repeating_list_matcher(pattern[:-1])
+    else:
+        return build_fixed_list_matcher(pattern)
 
 
 def build_fixed_list_matcher(pattern):
@@ -225,9 +221,13 @@ def build_fixed_list_matcher(pattern):
         if len(data) != len(matchers):
             raise LengthMismatch(len(data), len(matchers))
 
-        return reduce(or_, map(apply_first, zip(matchers, data)), {})
+        return reduce(merge_dicts, map(apply_first, zip(matchers, data)), {})
 
     return match_fixed_list
+
+
+def merge_dicts(a, b):
+    return {**a, **b}
 
 
 def build_repeating_list_matcher(patterns):
@@ -250,7 +250,9 @@ def build_repeating_list_matcher(patterns):
             raise LengthMismatch(len(data), n_prefix)
 
         bindings = reduce(
-            or_, map(apply_first, zip(prefix_matchers[:n_prefix], data[:n_prefix])), {}
+            merge_dicts,
+            map(apply_first, zip(prefix_matchers[:n_prefix], data[:n_prefix])),
+            {},
         )
 
         for name in bound_optional_names:
@@ -271,23 +273,22 @@ def build_repeating_list_matcher(patterns):
     return match_repeating
 
 
-def find_bindings(template, nesting_level=0):
+def find_bindings(pattern, nesting_level=0):
     """find all names bound in given pattern and return their nesting levels"""
     bindings = {}
-    match template:
-        case Bind(name):
-            bindings[name] = nesting_level
-        case BindAs(name, pattern, _):
-            bindings = find_bindings(pattern) | {name: nesting_level}
-        case SkipMissingKeys(_, pattern) | SkipOnMismatch(pattern):
-            bindings = find_bindings(pattern)
-        case list():
-            nesting_depth = sum(1 for x in template if x is ...)
-            for x in template:
-                bindings |= find_bindings(x, nesting_level + nesting_depth)
-        case dict():
-            for k, v in template.items():
-                bindings |= find_bindings(v, nesting_level)
+    if isinstance(pattern, Bind):
+        bindings[pattern.name] = nesting_level
+    elif isinstance(pattern, BindAs):
+        bindings = {**find_bindings(pattern.pattern), pattern.name: nesting_level}
+    elif isinstance(pattern, SkipMissingKeys) or isinstance(pattern, SkipOnMismatch):
+        bindings = find_bindings(pattern.pattern)
+    elif isinstance(pattern, list):
+        nesting_depth = sum(1 for x in pattern if x is ...)
+        for x in pattern:
+            bindings = {**bindings, **find_bindings(x, nesting_level + nesting_depth)}
+    elif isinstance(pattern, dict):
+        for k, v in pattern.items():
+            bindings = {**bindings, **find_bindings(v, nesting_level)}
     return bindings
 
 
@@ -306,7 +307,7 @@ def build_dict_matcher(pattern):
         bindings = {}
         for k, m in matchers.items():
             d = lookup(data, k)
-            bindings |= m(d)
+            bindings = {**bindings, **m(d)}
         return bindings
 
     return match_dict

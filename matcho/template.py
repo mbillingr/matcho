@@ -25,15 +25,14 @@ def build_template(spec):
     bindings (as produced by a matcher from `build_matcher`), returns
     an instance of the template with names substituted by their bound values.
     """
-    match spec:
-        case Insert(name):
-            return build_insertion_template(name)
-        case list(_):
-            return build_list_template(spec)
-        case dict(_):
-            return build_dict_template(spec)
-        case _:
-            return lambda *_: spec
+    if isinstance(spec, Insert):
+        return build_insertion_template(spec.name)
+    elif isinstance(spec, list):
+        return build_list_template(spec)
+    elif isinstance(spec, dict):
+        return build_dict_template(spec)
+    else:
+        return lambda *_: spec
 
 
 def build_insertion_template(name):
@@ -58,19 +57,14 @@ def build_list_template(template):
     Typically, `build_template` should be used instead, which delegates to
     this function where appropriate.
     """
-
-    class Special:
-        ELLIPSIS = ...
-
-    match template:
-        case [*prefix, last] if last is not ... and ... in prefix:
-            raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
-        case [*items, Special.ELLIPSIS, Special.ELLIPSIS]:
-            return build_flattened_list(items)
-        case [*items, rep, Special.ELLIPSIS]:
-            return build_actual_list_template(items, rep)
-        case [*items]:
-            return build_actual_list_template(items)
+    if len(template) >= 2 and template[-1] is not ... and ... in template:
+        raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
+    elif template[-2:] == [..., ...]:
+        return build_flattened_list(template[:-2])
+    elif len(template) >= 2 and template[-1] is ...:
+        return build_actual_list_template(template[:-2], template[-2])
+    else:
+        return build_actual_list_template(template)
 
 
 def build_flattened_list(items):
@@ -128,16 +122,15 @@ def build_actual_list_template(items, rep=None):
 def find_insertions(template):
     """find all names inserted in given template"""
     names = set()
-    match template:
-        case Insert(name):
-            names.add(name)
-        case list():
-            for x in template:
-                names |= find_insertions(x)
-        case dict():
-            for k, v in template.items():
-                names |= find_insertions(k)
-                names |= find_insertions(v)
+    if isinstance(template, Insert):
+        names.add(template.name)
+    elif isinstance(template, list):
+        for x in template:
+            names |= find_insertions(x)
+    elif isinstance(template, dict):
+        for k, v in template.items():
+            names |= find_insertions(k)
+            names |= find_insertions(v)
     return names
 
 
