@@ -13,7 +13,14 @@ from matcho import (
 )
 from matcho.bindings import Repeating
 
-__all__ = ["bind", "build_matcher", "default", "skip_mismatch", "skip_missing_keys"]
+__all__ = [
+    "bind",
+    "bind_as",
+    "build_matcher",
+    "default",
+    "skip_mismatch",
+    "skip_missing_keys",
+]
 
 
 def bind(name: str, dtype=None):
@@ -33,6 +40,17 @@ class Bind:
             except Exception:
                 raise TypeMismatch(value, self.dtype)
         return {self.name: value}
+
+
+def bind_as(name: str, pattern: Any):
+    """Match entire datum to name if it matches pattern"""
+    return BindAs(name, pattern)
+
+
+@dataclass
+class BindAs:
+    name: str
+    pattern: Any
 
 
 def default(key: Hashable, value: Any):
@@ -81,6 +99,8 @@ def build_matcher(pattern):
     """
     match pattern:
         case Bind(_):
+            return pattern.bind
+        case BindAs(_):
             return build_binding_matcher(pattern)
         case SkipOnMismatch(pattern):
             return build_mismatch_skipper(pattern, Mismatch, lambda _: True)
@@ -109,13 +129,20 @@ def build_literal_matcher(pattern):
     return match_literal
 
 
-def build_binding_matcher(binder):
+def build_binding_matcher(binder: BindAs):
     """Build a matcher that binds the data to the given name.
 
     Typically, `build_matcher` should be used instead, which delegates to
     this function where appropriate.
     """
-    return binder.bind
+    inner_matcher = build_matcher(binder.pattern)
+
+    def matcher(data):
+        bindings = inner_matcher(data)
+        bindings |= {binder.name: data}
+        return bindings
+
+    return matcher
 
 
 def build_instance_matcher(expected_type):

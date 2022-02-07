@@ -4,6 +4,7 @@ from matcho.bindings import Repeating
 from matcho.pattern import build_mismatch_skipper
 from matcho import (
     bind,
+    bind_as,
     build_matcher,
     default,
     skip_mismatch,
@@ -11,6 +12,7 @@ from matcho import (
     KeyMismatch,
     LiteralMismatch,
     LengthMismatch,
+    Mismatch,
     TypeMismatch,
     Skip,
 )
@@ -217,3 +219,11 @@ def test_casting_binds():
 
     with pytest.raises(TypeMismatch):
         matcher("not-an-int")
+
+
+def test_bind_as():
+    pattern = bind_as("x", [...])
+    assert build_matcher(pattern)([1, 2]) == {"x": [1, 2]}
+
+    with pytest.raises(Mismatch):
+        build_matcher(pattern)("not-a-list")
