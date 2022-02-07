@@ -233,6 +233,9 @@ def build_dict_matcher(pattern):
     matchers = {k: build_matcher(v) for k, v in pattern.items()}
 
     def match_dict(data):
+        if not isinstance(data, dict):
+            raise TypeMismatch(data, dict)
+
         bindings = {}
         for k, m in matchers.items():
             d = lookup(data, k)

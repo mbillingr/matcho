@@ -203,3 +203,8 @@ def test_zero_length_in_parallel_nesting():
         "x": Repeating([1, 2]),
         "y": Repeating([Repeating([10]), Repeating([])]),
     }
+
+
+def test_dictionary_raises_mismatch_if_data_is_no_dict():
+    with pytest.raises(TypeMismatch):
+        build_matcher({})("not-a-dict")
