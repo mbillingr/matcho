@@ -14,7 +14,8 @@ from matcho import (
     LengthMismatch,
     Mismatch,
     TypeMismatch,
-    Skip, CastMismatch,
+    Skip,
+    CastMismatch,
 )
 
 
@@ -227,6 +228,12 @@ def test_bind_as():
 
     with pytest.raises(Mismatch):
         matcher("not-a-list")
+
+
+def test_bind_as_with_default():
+    matcher = build_matcher(bind_as("x", default="D", pattern=[...]))
+    assert matcher([1, 2]) == {"x": [1, 2]}
+    assert matcher("not-a-list") == {"x": "D"}
 
 
 def test_match_type():

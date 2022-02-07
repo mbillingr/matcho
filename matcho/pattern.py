@@ -9,7 +9,8 @@ from matcho import (
     LiteralMismatch,
     Mismatch,
     Skip,
-    TypeMismatch, CastMismatch,
+    TypeMismatch,
+    CastMismatch,
 )
 from matcho.bindings import Repeating
 
@@ -42,15 +43,19 @@ class Bind:
         return {self.name: value}
 
 
-def bind_as(name: str, pattern: Any):
+NOT_SET = object()
+
+
+def bind_as(name: str, pattern: Any, default=NOT_SET):
     """Match entire datum to name if it matches pattern"""
-    return BindAs(name, pattern)
+    return BindAs(name, pattern, default)
 
 
 @dataclass
 class BindAs:
     name: str
     pattern: Any
+    default: Any = NOT_SET
 
 
 def default(key: Hashable, value: Any):
@@ -140,8 +145,13 @@ def build_binding_matcher(binder: BindAs):
     inner_matcher = build_matcher(binder.pattern)
 
     def matcher(data):
-        bindings = inner_matcher(data)
-        bindings |= {binder.name: data}
+        try:
+            bindings = inner_matcher(data)
+            bindings |= {binder.name: data}
+        except Mismatch:
+            if binder.default is NOT_SET:
+                raise
+            bindings = {binder.name: binder.default}
         return bindings
 
     return matcher
