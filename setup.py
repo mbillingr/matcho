@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="matcho",
-    version="0.3.3",
+    version="0.3.3-compat",
     author="Martin Billinger-Finke",
     packages=["matcho"],
     description="A pattern matching and template library.",
