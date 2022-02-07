@@ -70,7 +70,8 @@ def test_repeating_list_matching():
         build_matcher([1, ...])("not-a-list")
 
 
-def test_repeating_list_matching_with_binding():
+def test_list_with_ellipsis_matches_zero_or_more():
+    assert build_matcher([bind("x"), ...])([]) == {"x": Repeating([])}
     assert build_matcher([bind("x"), ...])([1]) == {"x": Repeating([1])}
     assert build_matcher([bind("x"), ...])([1, 2]) == {"x": Repeating([1, 2])}
 
@@ -89,15 +90,13 @@ def test_repeating_list_matching_with_nested_bindings():
 
 
 def test_repeating_list_with_prefix():
+    assert build_matcher([1, 2, 3, ...])([1, 2]) == {}
     assert build_matcher([1, 2, 3, ...])([1, 2, 3]) == {}
     assert build_matcher([1, 2, 3, ...])([1, 2, 3, 3]) == {}
     assert build_matcher([1, 2, 3, ...])([1, 2, 3, 3, 3]) == {}
 
     with pytest.raises(LiteralMismatch):
         build_matcher([1, 2, 3, ...])([1, 2, 3, 4])
-
-    with pytest.raises(LengthMismatch):
-        build_matcher([1, 2, 3, ...])([1, 2])
 
 
 def test_repeating_list_matching_with_prefix_and_binding():
@@ -193,4 +192,14 @@ def test_skip_fields_together():
     assert build_matcher(pattern)(data) == {
         "x": Repeating([1, 4]),
         "y": Repeating([10, 40]),
+    }
+
+
+def test_zero_length_in_parallel_nesting():
+    pattern = [{"x": bind("x"), "Y": [bind("y"), ...]}, ...]
+    data = [{"x": 1, "Y": [10]}, {"x": 2, "Y": []}]
+    matcher = build_matcher(pattern)
+    assert matcher(data) == {
+        "x": Repeating([1, 2]),
+        "y": Repeating([Repeating([10]), Repeating([])]),
     }

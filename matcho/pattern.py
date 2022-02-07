@@ -175,16 +175,22 @@ def build_repeating_list_matcher(patterns):
     prefix_matchers = [build_matcher(p) for p in patterns[:-1]]
     n_prefix = len(prefix_matchers)
 
+    bound_optional_names = find_bindings(patterns[-1])
+
     def match_repeating(data):
         if not isinstance(data, list):
             raise TypeMismatch(data, list)
 
-        if len(data) <= n_prefix:
-            raise LengthMismatch(len(data), n_prefix + 1)
+        if len(data) < n_prefix:
+            raise LengthMismatch(len(data), n_prefix)
 
         bindings = reduce(
             or_, map(apply_first, zip(prefix_matchers[:n_prefix], data[:n_prefix])), {}
         )
+
+        for name in bound_optional_names:
+            assert name not in bindings
+            bindings[name] = Repeating([])
 
         for d in data[n_prefix:]:
             try:
@@ -193,11 +199,29 @@ def build_repeating_list_matcher(patterns):
                 continue
 
             for k, v in bnd.items():
-                bindings.setdefault(k, Repeating([])).values.append(v)
+                bindings[k].values.append(v)
 
         return bindings
 
     return match_repeating
+
+
+def find_bindings(template, nesting_level=0):
+    """find all names bound in given pattern and return their nesting levels"""
+    bindings = {}
+    match template:
+        case Bind(name):
+            bindings[name] = nesting_level
+        case SkipMissingKeys(_, pattern) | SkipOnMismatch(pattern):
+            bindings = find_bindings(pattern)
+        case list():
+            nesting_depth = sum(1 for x in template if x is ...)
+            for x in template:
+                bindings |= find_bindings(x, nesting_level + nesting_depth)
+        case dict():
+            for k, v in template.items():
+                bindings |= find_bindings(v, nesting_level)
+    return bindings
 
 
 def build_dict_matcher(pattern):
