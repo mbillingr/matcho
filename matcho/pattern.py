@@ -277,6 +277,8 @@ def find_bindings(template, nesting_level=0):
     match template:
         case Bind(name):
             bindings[name] = nesting_level
+        case BindAs(name, pattern, _):
+            bindings = find_bindings(pattern) | {name: nesting_level}
         case SkipMissingKeys(_, pattern) | SkipOnMismatch(pattern):
             bindings = find_bindings(pattern)
         case list():

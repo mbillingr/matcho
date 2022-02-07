@@ -1,7 +1,7 @@
 import pytest
 
 from matcho.bindings import Repeating
-from matcho.pattern import build_mismatch_skipper
+from matcho.pattern import build_mismatch_skipper, find_bindings
 from matcho import (
     bind,
     bind_as,
@@ -243,3 +243,15 @@ def test_match_type():
 
     with pytest.raises(CastMismatch):
         matcher("not-an-int")
+
+
+def test_find_bindings_sees_through_patterns():
+    assert find_bindings("literal") == {}
+    assert find_bindings(bind("x")) == {"x": 0}
+    assert find_bindings(bind_as("x", "literal")) == {"x": 0}
+    assert find_bindings(bind_as("x", bind("y"))) == {"x": 0, "y": 0}
+    assert find_bindings(skip_mismatch(bind("x"))) == {"x": 0}
+    assert find_bindings(skip_missing_keys([], bind("x"))) == {"x": 0}
+    assert find_bindings([bind("x")]) == {"x": 0}
+    assert find_bindings([bind("x"), ...]) == {"x": 1}
+    assert find_bindings({"K": bind("x")}) == {"x": 0}
