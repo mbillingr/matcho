@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
-from typing import Any, Hashable
+from typing import Any, Hashable, Optional
 
 from matcho import (
     KeyMismatch,
@@ -16,14 +16,23 @@ from matcho.bindings import Repeating
 __all__ = ["bind", "build_matcher", "default", "skip_mismatch", "skip_missing_keys"]
 
 
-def bind(name: str):
+def bind(name: str, dtype=None):
     """Match any data and bind it to the name."""
-    return Bind(name)
+    return Bind(name, dtype)
 
 
 @dataclass
 class Bind:
     name: str
+    dtype: Optional[type] = None
+
+    def bind(self, value):
+        if self.dtype is not None:
+            try:
+                value = self.dtype(value)
+            except Exception:
+                raise TypeMismatch(value, self.dtype)
+        return {self.name: value}
 
 
 def default(key: Hashable, value: Any):
@@ -71,8 +80,8 @@ def build_matcher(pattern):
     The bindings may then be substituted in a template constructed by `build_template`.
     """
     match pattern:
-        case Bind(name):
-            return build_binding_matcher(name)
+        case Bind(_):
+            return build_binding_matcher(pattern)
         case SkipOnMismatch(pattern):
             return build_mismatch_skipper(pattern, Mismatch, lambda _: True)
         case SkipMissingKeys(keys, pattern):
@@ -100,13 +109,13 @@ def build_literal_matcher(pattern):
     return match_literal
 
 
-def build_binding_matcher(name):
+def build_binding_matcher(binder):
     """Build a matcher that binds the data to the given name.
 
     Typically, `build_matcher` should be used instead, which delegates to
     this function where appropriate.
     """
-    return lambda data: {name: data}
+    return binder.bind
 
 
 def build_instance_matcher(expected_type):

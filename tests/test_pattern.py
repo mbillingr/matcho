@@ -208,3 +208,12 @@ def test_zero_length_in_parallel_nesting():
 def test_dictionary_raises_mismatch_if_data_is_no_dict():
     with pytest.raises(TypeMismatch):
         build_matcher({})("not-a-dict")
+
+
+def test_casting_binds():
+    matcher = build_matcher(bind("x", dtype=int))
+    assert matcher(42) == {"x": 42}
+    assert matcher("42") == {"x": 42}
+
+    with pytest.raises(TypeMismatch):
+        matcher("not-an-int")
