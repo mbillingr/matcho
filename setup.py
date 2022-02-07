@@ -13,5 +13,5 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/mbillingr/matcho",
     license="LICENSE",
-    python_requires=">=3.6",
+    python_requires=">=3.7",
 )
