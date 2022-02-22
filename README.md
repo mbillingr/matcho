@@ -1,6 +1,8 @@
 # Matcho
 A pattern matching and template library.
 
+- Extract and convert hierarchically structured data using declarative input patterns and output templates.
+
 Matcho was originally written by a need to convert hierarchical
 JSON data into flattish data frames. It may yet transcend this purpose.
 
