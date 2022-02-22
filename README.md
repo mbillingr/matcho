@@ -1,6 +1,8 @@
 [![Tests](https://github.com/mbillingr/matcho/actions/workflows/python-tests.yml/badge.svg)](https://github.com/mbillingr/matcho/actions/workflows/python-tests.yml)
-![PyPI](https://img.shields.io/pypi/v/matcho?label=pypi%20version&logo=pypi)
-![PyPI - Downloads](https://img.shields.io/pypi/dm/matcho?label=pypi%20downloads&logo=pypi)
+[
+    ![PyPI](https://img.shields.io/pypi/v/matcho?label=pypi%20version&logo=pypi)
+    ![PyPI - Downloads](https://img.shields.io/pypi/dm/matcho?label=pypi%20downloads&logo=pypi)
+](https://pypi.org/project/matcho/)
 
 
 # Matcho
