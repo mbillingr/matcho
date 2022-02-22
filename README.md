@@ -1,6 +1,8 @@
 # Matcho
 A pattern matching and template library.
 
+- Extract and convert hierarchically structured data using declarative input patterns and output templates.
+
 Matcho was originally written by a need to convert hierarchical
 JSON data into flattish data frames. It may yet transcend this purpose.
 
@@ -56,7 +58,7 @@ data = {
 }
 ```
 
-That's how a Matcho would do it:
+That's how Matcho does it:
 
 ```python
 from matcho import build_matcher, build_template, bind, insert
@@ -93,8 +95,8 @@ assert table == [
 ```
 
 ## Inspiration
-Matcho was inspired by Scheme's `syntax-rules` pattern language. The Lisp
-dialect Scheme allows programmers to define macros using pattern matching and
+Matcho was inspired by Scheme's `syntax-rules` pattern language. Scheme is a 
+Lisp dialect that allows programmers to define macros using pattern matching and
 template substitution. Since code in Scheme consists of list this enables cool
 syntax transformations. In Python we are limited to transforming data, but 
 that's cool enough.
@@ -104,5 +106,5 @@ The new `match` syntax is great and it's even used by the implementation of
 Macho. However, it has one shortcoming: names can only capture one value. While
 it's possible to match an arbitary number of list items with `[*items]`, it's
 not possible to do something like `[*{"nested": item}]`, where we would like
-to capture the values of in a sequence of dictionaries. In Matcho, this is 
-possible with a pattern of the form `[{"nested": item}, ...]`.
+to capture values in a sequence of dictionaries. In Matcho, this is  possible
+with a pattern of the form `[{"nested": item}, ...]`.
