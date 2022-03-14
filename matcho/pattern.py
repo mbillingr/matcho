@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from functools import reduce
+from functools import reduce, singledispatch
 from operator import or_
 from typing import Any, Callable, Dict, Hashable, List, Optional
 
@@ -23,27 +23,12 @@ __all__ = [
     "skip_missing_keys",
 ]
 
+NOT_SET = object()
+
 
 def bind(name: str, dtype=None):
     """Match any data and bind it to the name."""
     return Bind(name, dtype)
-
-
-@dataclass
-class Bind:
-    name: str
-    dtype: Optional[type] = None
-
-    def bind(self, value):
-        if self.dtype is not None:
-            try:
-                value = self.dtype(value)
-            except Exception:
-                raise CastMismatch(value, self.dtype)
-        return {self.name: value}
-
-
-NOT_SET = object()
 
 
 def bind_as(name: str, pattern: Any, default=NOT_SET):
@@ -51,16 +36,48 @@ def bind_as(name: str, pattern: Any, default=NOT_SET):
     return BindAs(name, pattern, default)
 
 
+def default(key: Hashable, value: Any):
+    """Allow a key not to be present in the data by providing a default value."""
+    return Default(key, value)
+
+
+def skip_mismatch(pattern: Any):
+    """Skip the current item in a variable sequence matcher if the wrapped pattern does not match the data."""
+    return SkipOnMismatch(pattern)
+
+
+def skip_missing_keys(keys: list, pattern: Any):
+    """Skip the current item in a variable sequence matcher if one of the given keys is not present in the data."""
+    return SkipMissingKeys(keys, pattern)
+
+
+class Pattern:
+    def build_matcher(self) -> "Matcher":
+        raise NotImplementedError(f"{self.__class__.__name__}.build_matcher()")
+
+
 @dataclass
-class BindAs:
+class Bind(Pattern):
+    name: str
+    dtype: Optional[type] = None
+
+    def build_matcher(self):
+        if self.dtype is None:
+            matcher = MatchAny()
+        else:
+            matcher = TypeMatcher(self.dtype)
+        return BindingMatcher(matcher, self.name)
+
+
+@dataclass
+class BindAs(Pattern):
     name: str
     pattern: Any
     default: Any = NOT_SET
 
-
-def default(key: Hashable, value: Any):
-    """Allow a key not to be present in the data by providing a default value."""
-    return Default(key, value)
+    def build_matcher(self):
+        inner_matcher = build_matcher(self.pattern)
+        return BindingMatcher(inner_matcher, self.name, self.default)
 
 
 @dataclass
@@ -72,110 +89,71 @@ class Default:
         return hash(self.key)
 
 
-def skip_mismatch(pattern: Any):
-    """Skip the current item in a variable sequence matcher if the wrapped pattern does not match the data."""
-    return SkipOnMismatch(pattern)
-
-
 @dataclass
-class SkipOnMismatch:
+class SkipOnMismatch(Pattern):
     pattern: Any
 
-
-def skip_missing_keys(keys: list, pattern: Any):
-    """Skip the current item in a variable sequence matcher if one of the given keys is not present in the data."""
-    return SkipMissingKeys(keys, pattern)
+    def build_matcher(self) -> "Matcher":
+        matcher = build_matcher(self.pattern)
+        return ErrorHandlingMatcher(matcher, lambda m: isinstance(m, Mismatch))
 
 
 @dataclass
-class SkipMissingKeys:
+class SkipMissingKeys(Pattern):
     keys: list
     pattern: Any
 
-
-class Matcher:
-    def __call__(self, data):
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must be callable to be a valid matcher."
+    def build_matcher(self) -> "Matcher":
+        matcher = build_matcher(self.pattern)
+        return ErrorHandlingMatcher(
+            matcher, lambda m: hasattr(m, "key") and m.key in self.keys
         )
 
 
-class MatchAny(Matcher):
+class Matcher:
+    def match(self, data) -> (Any, Dict):
+        raise NotImplementedError(f"{self.__class__.__name__}.match()")
+
     def __call__(self, data):
-        return {}
+        _, bindings = self.match(data)
+        return bindings
 
 
-def build_matcher(pattern):
-    """Build a matcher from the given pattern.
-
-    The matcher is an object that can be called with the data to match against
-    the pattern. If the match is successful, it returns a set of bindings.
-    If the data can't be matched, a `Mismatch` exception is raised.
-
-    The bindings may then be substituted in a template constructed by `build_template`.
-    """
-    match pattern:
-        case Bind(_):
-            return pattern.bind
-        case BindAs(_):
-            return build_binding_matcher(pattern)
-        case SkipOnMismatch(pattern):
-            return build_mismatch_skipper(pattern, lambda m: isinstance(m, Mismatch))
-        case SkipMissingKeys(keys, pattern):
-            return build_mismatch_skipper(
-                pattern, lambda m: hasattr(m, "key") and m.key in keys
-            )
-        case [*_]:
-            return build_list_matcher(pattern)
-        case {}:
-            return build_dict_matcher(pattern)
-        case type():
-            return build_type_matcher(pattern)
-        case _:
-            return LiteralMatcher(pattern)
+class MatchAny(Matcher):
+    """Matches any value."""
+    def match(self, data):
+        return data, {}
 
 
+@dataclass
 class LiteralMatcher(Matcher):
     """Matches if data is equal to a literal pattern."""
+    literal: Any
 
-    def __init__(self, literal):
-        self.literal = literal
-
-    def __call__(self, data):
+    def match(self, data):
         if data == self.literal:
-            return {}
+            return data, {}
         raise LiteralMismatch(data, self.literal)
 
 
-def build_binding_matcher(binder: BindAs):
-    """Build a matcher that binds the data to the given name.
-
-    Typically, `build_matcher` should be used instead, which delegates to
-    this function where appropriate.
-    """
-    inner_matcher = build_matcher(binder.pattern)
-    return BindingMatcher(inner_matcher, binder.name, binder.default)
-
-
+@dataclass
 class BindingMatcher(Matcher):
     """Wrap another matcher. If that matches, bind its value to `name`.
     Otherwise, raise a `Mismatch` or bind the optional default value.
     """
+    matcher: Matcher
+    name: str
+    default: Any = NOT_SET
 
-    def __init__(self, matcher, name, default=NOT_SET):
-        self.name = name
-        self.matcher = matcher
-        self.default = default
-
-    def __call__(self, data):
+    def match(self, data):
         try:
-            bindings = self.matcher(data)
-            bindings |= {self.name: data}
+            data_out, bindings = self.matcher.match(data)
+            bindings |= {self.name: data_out}
         except Mismatch:
             if self.default is NOT_SET:
                 raise
             bindings = {self.name: self.default}
-        return bindings
+        return data, bindings
 
 
 def build_instance_matcher(expected_type):
@@ -193,9 +171,9 @@ class InstanceMatcher(Matcher):
 
     expected_type: type
 
-    def __call__(self, data):
+    def match(self, data):
         if isinstance(data, self.expected_type):
-            return {}
+            return data, {}
         raise TypeMismatch(data, self.expected_type)
 
 
@@ -214,15 +192,11 @@ class TypeMatcher(Matcher):
 
     expected_type: type
 
-    def transform(self, data):
+    def match(self, data):
         try:
-            return self.expected_type(data)
+            return self.expected_type(data), {}
         except Exception:
             raise CastMismatch(data, self.expected_type)
-
-    def __call__(self, data):
-        self.transform(data)
-        return {}
 
 
 def build_list_matcher(pattern):
@@ -263,14 +237,14 @@ class FixdListMatcher(Matcher):
 
     element_matchers: List[Matcher]
 
-    def __call__(self, data):
+    def match(self, data):
         if not isinstance(data, list):
             raise TypeMismatch(data, list)
 
         if len(data) != self.expected_length:
             raise LengthMismatch(len(data), self.expected_length)
 
-        return reduce(or_, map(apply_first, zip(self.element_matchers, data)), {})
+        return data, reduce(or_, map(apply_first, zip(self.element_matchers, data)), {})
 
     @property
     def expected_length(self):
@@ -299,7 +273,7 @@ class RepeatingListMatcher(Matcher):
     repeating_matcher: Matcher
     bound_optional_names: Dict
 
-    def __call__(self, data):
+    def match(self, data):
         n_prefix = self.prefix_matcher.expected_length
         bindings = self.prefix_matcher(data[:n_prefix])
 
@@ -316,13 +290,13 @@ class RepeatingListMatcher(Matcher):
             for k, v in bnd.items():
                 bindings[k].values.append(v)
 
-        return bindings
+        return data, bindings
 
 
-def find_bindings(template, nesting_level=0):
+def find_bindings(pattern, nesting_level=0):
     """find all names bound in given pattern and return their nesting levels"""
     bindings = {}
-    match template:
+    match pattern:
         case Bind(name):
             bindings[name] = nesting_level
         case BindAs(name, pattern, _):
@@ -330,11 +304,11 @@ def find_bindings(template, nesting_level=0):
         case SkipMissingKeys(_, pattern) | SkipOnMismatch(pattern):
             bindings = find_bindings(pattern)
         case list():
-            nesting_depth = sum(1 for x in template if x is ...)
-            for x in template:
+            nesting_depth = sum(1 for x in pattern if x is ...)
+            for x in pattern:
                 bindings |= find_bindings(x, nesting_level + nesting_depth)
         case dict():
-            for k, v in template.items():
+            for k, v in pattern.items():
                 bindings |= find_bindings(v, nesting_level)
     return bindings
 
@@ -355,7 +329,7 @@ class DictMatcher(Matcher):
 
     item_matchers: Dict[Any, Matcher]
 
-    def __call__(self, data):
+    def match(self, data):
         if not isinstance(data, dict):
             raise TypeMismatch(data, dict)
 
@@ -363,7 +337,7 @@ class DictMatcher(Matcher):
         for k, m in self.item_matchers.items():
             d = lookup(data, k)
             bindings |= m(d)
-        return bindings
+        return data, bindings
 
 
 def build_mismatch_skipper(pattern, predicate):
@@ -376,17 +350,40 @@ def build_mismatch_skipper(pattern, predicate):
     return ErrorHandlingMatcher(matcher, predicate)
 
 
+@singledispatch
+def build_matcher(pattern):
+    """Build a matcher from the given pattern.
+
+    The matcher is an object that can be called with the data to match against
+    the pattern. If the match is successful, it returns a set of bindings.
+    If the data can't be matched, a `Mismatch` exception is raised.
+
+    The bindings may then be substituted in a template constructed by `build_template`.
+
+    This is a generic function. Support for additional patterns can be added with
+    the `build_matcher.register(<type>, <handler>)` function. See the documentation
+    of `functools.singledispatch` for further information.
+    """
+    return LiteralMatcher(pattern)
+
+
+build_matcher.register(Pattern, lambda p: p.build_matcher())
+build_matcher.register(list, build_list_matcher)
+build_matcher.register(dict, build_dict_matcher)
+build_matcher.register(type, build_type_matcher)
+
+
 @dataclass
-class ErrorHandlingMatcher:
+class ErrorHandlingMatcher(Matcher):
     """Skip any `Mismatches` of the correct subtype raised by the
     wrapped matcher if they satisfy an optional predicate."""
 
     matcher: Matcher
     predicate: Callable
 
-    def __call__(self, data):
+    def match(self, data):
         try:
-            return self.matcher(data)
+            return self.matcher.match(data)
         except Exception as e:
             if self.predicate(e):
                 raise Skip()
