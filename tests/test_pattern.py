@@ -152,35 +152,31 @@ def test_skippable_key_failure():
     assert build_matcher(pattern)(data) == {"x": Repeating([1, 2])}
 
 
-def test_mismatch_skipper_replaces_selected_exception_with_skip():
+def test_mismatch_skipper_replaces_exception_with_skip():
     with pytest.raises(Skip):
-        build_mismatch_skipper(0, LiteralMismatch)(1)
-
-
-def test_mismatch_skipper_passes_through_other_exceptions():
-    with pytest.raises(LiteralMismatch):
-        build_mismatch_skipper(0, LengthMismatch)(1)
+        build_mismatch_skipper(0, lambda _: True)(1)
 
 
 def test_mismatch_skipper_passes_through_if_predicate_returns_false():
     with pytest.raises(LiteralMismatch):
-        build_mismatch_skipper(0, LiteralMismatch, lambda _: False)(1)
+        build_mismatch_skipper(0, lambda _: False)(1)
 
 
-def test_mismatch_skipper_predicate_recieves_expectation():
+def test_mismatch_skipper_predicate_receives_mismatch_info():
     class MockPredicate:
         called_with = None
 
-        def __call__(self, *args):
-            self.called_with = args
+        def __call__(self, exception):
+            self.exception = exception
             return False
 
     pred = MockPredicate()
     try:
-        build_mismatch_skipper(0, LiteralMismatch, pred)(1)
+        build_mismatch_skipper(0, pred)(1)
     except LiteralMismatch:
         pass
-    assert pred.called_with == (0,)
+    assert isinstance(pred.exception, LiteralMismatch)
+    assert pred.exception.args == (1, 0)
 
 
 def test_skippable_list_item():
