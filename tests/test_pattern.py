@@ -1,7 +1,8 @@
 import pytest
 
 from matcho.bindings import Repeating
-from matcho.pattern import build_mismatch_skipper, find_bindings, MatchAny
+from matcho import pattern
+from matcho.pattern import build_mismatch_skipper, MatchAny
 from matcho import (
     bind,
     bind_as,
@@ -148,8 +149,9 @@ def test_key_with_defaults():
 
 def test_skippable_key_failure():
     pattern = [skip_missing_keys(["x"], {"x": bind("x")}), ...]
+    matcher = build_matcher(pattern)
     data = [{"x": 1}, {}, {"x": 2}]
-    assert build_matcher(pattern)(data) == {"x": Repeating([1, 2])}
+    assert matcher(data) == {"x": Repeating([1, 2])}
 
 
 def test_mismatch_skipper_replaces_exception_with_skip():
@@ -241,16 +243,17 @@ def test_match_type():
         matcher("not-an-int")
 
 
-def test_find_bindings_sees_through_patterns():
-    assert find_bindings("literal") == {}
-    assert find_bindings(bind("x")) == {"x": 0}
-    assert find_bindings(bind_as("x", "literal")) == {"x": 0}
-    assert find_bindings(bind_as("x", bind("y"))) == {"x": 0, "y": 0}
-    assert find_bindings(skip_mismatch(bind("x"))) == {"x": 0}
-    assert find_bindings(skip_missing_keys([], bind("x"))) == {"x": 0}
-    assert find_bindings([bind("x")]) == {"x": 0}
-    assert find_bindings([bind("x"), ...]) == {"x": 1}
-    assert find_bindings({"K": bind("x")}) == {"x": 0}
+def test_bound_names():
+    assert build_matcher("literal").bound_names() == {}
+    assert build_matcher(bind("x")).bound_names() == {"x": 0}
+    assert build_matcher(bind_as("x", "literal")).bound_names() == {"x": 0}
+    assert build_matcher(bind_as("x", bind("y"))).bound_names() == {"x": 0, "y": 0}
+    assert build_matcher(skip_mismatch(bind("x"))).bound_names() == {"x": 0}
+    assert build_matcher(skip_missing_keys([], bind("x"))).bound_names() == {"x": 0}
+    assert build_matcher([bind("x")]).bound_names() == {"x": 0}
+    assert build_matcher([bind("x"), ...]).bound_names() == {"x": 1}
+    assert build_matcher([bind("x"), bind("y"), ...]).bound_names() == {"x": 0, "y": 1}
+    assert build_matcher({"K": bind("x")}).bound_names() == {"x": 0}
 
 
 def test_matcher_any_always_matches():

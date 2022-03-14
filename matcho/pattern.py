@@ -114,6 +114,10 @@ class Matcher:
     def match(self, data) -> (Any, Dict):
         raise NotImplementedError(f"{self.__class__.__name__}.match()")
 
+    def bound_names(self, nesting_level=0):
+        """return all names bound in this matcher and submatchers and return their nesting levels"""
+        return {}
+
     def __call__(self, data):
         _, bindings = self.match(data)
         return bindings
@@ -121,6 +125,7 @@ class Matcher:
 
 class MatchAny(Matcher):
     """Matches any value."""
+
     def match(self, data):
         return data, {}
 
@@ -128,6 +133,7 @@ class MatchAny(Matcher):
 @dataclass
 class LiteralMatcher(Matcher):
     """Matches if data is equal to a literal pattern."""
+
     literal: Any
 
     def match(self, data):
@@ -141,6 +147,7 @@ class BindingMatcher(Matcher):
     """Wrap another matcher. If that matches, bind its value to `name`.
     Otherwise, raise a `Mismatch` or bind the optional default value.
     """
+
     matcher: Matcher
     name: str
     default: Any = NOT_SET
@@ -154,6 +161,9 @@ class BindingMatcher(Matcher):
                 raise
             bindings = {self.name: self.default}
         return data, bindings
+
+    def bound_names(self, nesting_level=0):
+        return self.matcher.bound_names(nesting_level) | {self.name: nesting_level}
 
 
 def build_instance_matcher(expected_type):
@@ -250,6 +260,11 @@ class FixdListMatcher(Matcher):
     def expected_length(self):
         return len(self.element_matchers)
 
+    def bound_names(self, nesting_level=0):
+        return reduce(
+            or_, (m.bound_names(nesting_level) for m in self.element_matchers), {}
+        )
+
 
 def build_repeating_list_matcher(patterns):
     """Build a matcher that matches lists of variable length.
@@ -260,7 +275,7 @@ def build_repeating_list_matcher(patterns):
     repeating_matcher = build_matcher(patterns[-1])
     prefix_matcher = build_fixed_list_matcher(patterns[:-1])
 
-    bound_optional_names = find_bindings(patterns[-1])
+    bound_optional_names = repeating_matcher.bound_names()
 
     return RepeatingListMatcher(prefix_matcher, repeating_matcher, bound_optional_names)
 
@@ -292,25 +307,10 @@ class RepeatingListMatcher(Matcher):
 
         return data, bindings
 
-
-def find_bindings(pattern, nesting_level=0):
-    """find all names bound in given pattern and return their nesting levels"""
-    bindings = {}
-    match pattern:
-        case Bind(name):
-            bindings[name] = nesting_level
-        case BindAs(name, pattern, _):
-            bindings = find_bindings(pattern) | {name: nesting_level}
-        case SkipMissingKeys(_, pattern) | SkipOnMismatch(pattern):
-            bindings = find_bindings(pattern)
-        case list():
-            nesting_depth = sum(1 for x in pattern if x is ...)
-            for x in pattern:
-                bindings |= find_bindings(x, nesting_level + nesting_depth)
-        case dict():
-            for k, v in pattern.items():
-                bindings |= find_bindings(v, nesting_level)
-    return bindings
+    def bound_names(self, nesting_level=0):
+        bindings = self.prefix_matcher.bound_names(nesting_level)
+        bindings |= self.repeating_matcher.bound_names(nesting_level + 1)
+        return bindings
 
 
 def build_dict_matcher(pattern):
@@ -339,6 +339,11 @@ class DictMatcher(Matcher):
             bindings |= m(d)
         return data, bindings
 
+    def bound_names(self, nesting_level=0):
+        return reduce(
+            or_, (m.bound_names(nesting_level) for m in self.item_matchers.values())
+        )
+
 
 def build_mismatch_skipper(pattern, predicate):
     """Build a matcher that replaces exceptions of a given type with `Skip` exceptions.
@@ -351,7 +356,7 @@ def build_mismatch_skipper(pattern, predicate):
 
 
 @singledispatch
-def build_matcher(pattern):
+def build_matcher(pattern) -> Matcher:
     """Build a matcher from the given pattern.
 
     The matcher is an object that can be called with the data to match against
@@ -388,6 +393,9 @@ class ErrorHandlingMatcher(Matcher):
             if self.predicate(e):
                 raise Skip()
             raise
+
+    def bound_names(self, nesting_level=0):
+        return self.matcher.bound_names(nesting_level)
 
 
 def apply_first(seq):
