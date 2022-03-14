@@ -1,7 +1,7 @@
 import pytest
 
 from matcho.bindings import Repeating
-from matcho.pattern import build_mismatch_skipper, find_bindings
+from matcho.pattern import build_mismatch_skipper, find_bindings, MatchAny
 from matcho import (
     bind,
     bind_as,
@@ -251,3 +251,10 @@ def test_find_bindings_sees_through_patterns():
     assert find_bindings([bind("x")]) == {"x": 0}
     assert find_bindings([bind("x"), ...]) == {"x": 1}
     assert find_bindings({"K": bind("x")}) == {"x": 0}
+
+
+def test_matcher_any_always_matches():
+    matcher = MatchAny()
+    assert matcher(None) == {}
+    assert matcher(123) == {}
+    assert matcher("abc") == {}

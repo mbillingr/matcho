@@ -100,6 +100,11 @@ class Matcher:
         )
 
 
+class MatchAny(Matcher):
+    def __call__(self, data):
+        return {}
+
+
 def build_matcher(pattern):
     """Build a matcher from the given pattern.
 
