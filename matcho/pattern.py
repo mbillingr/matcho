@@ -262,7 +262,9 @@ class FixdListMatcher(Matcher):
 
     def bound_names(self, nesting_level=0):
         return reduce(
-            or_, (m.bound_names(nesting_level) for m in self.element_matchers), {}
+            or_,
+            (m.bound_names(nesting_level) for m in self.element_matchers),
+            {},
         )
 
 
@@ -341,7 +343,9 @@ class DictMatcher(Matcher):
 
     def bound_names(self, nesting_level=0):
         return reduce(
-            or_, (m.bound_names(nesting_level) for m in self.item_matchers.values())
+            or_,
+            (m.bound_names(nesting_level) for m in self.item_matchers.values()),
+            {},
         )
 
 
