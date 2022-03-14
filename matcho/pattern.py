@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from functools import reduce, singledispatch
-from operator import or_
 from typing import Any, Callable, Dict, Hashable, List, Optional
 
 from matcho import (
@@ -31,9 +30,9 @@ def bind(name: str, dtype=None):
     return Bind(name, dtype)
 
 
-def bind_as(name: str, pattern: Any, default=NOT_SET):
+def bind_as(name: str, pattern: Any, default_value=NOT_SET):
     """Bind entire datum to name if it matches pattern"""
-    return BindAs(name, pattern, default)
+    return BindAs(name, pattern, default_value)
 
 
 def default(key: Hashable, value: Any):
@@ -155,7 +154,7 @@ class BindingMatcher(Matcher):
     def match(self, data):
         try:
             data_out, bindings = self.matcher.match(data)
-            bindings |= {self.name: data_out}
+            bindings[self.name] = data_out
         except Mismatch:
             if self.default is NOT_SET:
                 raise
@@ -163,7 +162,9 @@ class BindingMatcher(Matcher):
         return data, bindings
 
     def bound_names(self, nesting_level=0):
-        return self.matcher.bound_names(nesting_level) | {self.name: nesting_level}
+        names = self.matcher.bound_names(nesting_level)
+        names[self.name] = nesting_level
+        return names
 
 
 def build_instance_matcher(expected_type):
@@ -215,19 +216,17 @@ def build_list_matcher(pattern):
     Typically, `build_matcher` should be used instead, which delegates to
     this function where appropriate.
     """
+    if ... in pattern[:-1]:
+        raise ValueError("Ellipsis is only allowed in the final position")
 
-    class Special:
-        ELLIPSIS = ...
-
-    match pattern:
-        case [*prefix, last] if last is not ... and ... in prefix:
-            raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
-        case [Special.ELLIPSIS]:
-            return build_instance_matcher(list)
-        case [*prefix, Special.ELLIPSIS]:
-            return build_repeating_list_matcher(prefix)
-        case _:
-            return build_fixed_list_matcher(pattern)
+    if not pattern:
+        return build_fixed_list_matcher(pattern)
+    elif pattern == [...]:
+        return build_instance_matcher(list)
+    elif pattern[-1] is ...:
+        return build_repeating_list_matcher(pattern[:-1])
+    else:
+        return build_fixed_list_matcher(pattern)
 
 
 def build_fixed_list_matcher(patterns):
@@ -237,11 +236,11 @@ def build_fixed_list_matcher(patterns):
     this function where appropriate.
     """
     matchers = [build_matcher(p) for p in patterns]
-    return FixdListMatcher(matchers)
+    return FixedListMatcher(matchers)
 
 
 @dataclass
-class FixdListMatcher(Matcher):
+class FixedListMatcher(Matcher):
     """Match any list of correct length where each element
     matches its corresponding matcher."""
 
@@ -254,7 +253,7 @@ class FixdListMatcher(Matcher):
         if len(data) != self.expected_length:
             raise LengthMismatch(len(data), self.expected_length)
 
-        return data, reduce(or_, map(apply_first, zip(self.element_matchers, data)), {})
+        return data, reduce(merge_dicts, map(apply_first, zip(self.element_matchers, data)), {})
 
     @property
     def expected_length(self):
@@ -262,7 +261,7 @@ class FixdListMatcher(Matcher):
 
     def bound_names(self, nesting_level=0):
         return reduce(
-            or_,
+            merge_dicts,
             (m.bound_names(nesting_level) for m in self.element_matchers),
             {},
         )
@@ -286,7 +285,7 @@ def build_repeating_list_matcher(patterns):
 class RepeatingListMatcher(Matcher):
     """Match a list, where the last element may repeat zero or more times."""
 
-    prefix_matcher: FixdListMatcher
+    prefix_matcher: FixedListMatcher
     repeating_matcher: Matcher
     bound_optional_names: Dict
 
@@ -311,7 +310,7 @@ class RepeatingListMatcher(Matcher):
 
     def bound_names(self, nesting_level=0):
         bindings = self.prefix_matcher.bound_names(nesting_level)
-        bindings |= self.repeating_matcher.bound_names(nesting_level + 1)
+        bindings.update(self.repeating_matcher.bound_names(nesting_level + 1))
         return bindings
 
 
@@ -338,12 +337,12 @@ class DictMatcher(Matcher):
         bindings = {}
         for k, m in self.item_matchers.items():
             d = lookup(data, k)
-            bindings |= m(d)
+            bindings.update(m(d))
         return data, bindings
 
     def bound_names(self, nesting_level=0):
         return reduce(
-            or_,
+            merge_dicts,
             (m.bound_names(nesting_level) for m in self.item_matchers.values()),
             {},
         )
@@ -424,3 +423,12 @@ def lookup(mapping, key):
         pass
 
     raise KeyMismatch(mapping, key)
+
+
+def merge_dicts(a, b):
+    """Return a new dict with items from two other dicts.
+    This function exists for backward compatibility to replace Python 3.9's a|b.
+    For performance reasons, there are no guarantees that a and b won't be modified.
+    """
+    a.update(b)
+    return a

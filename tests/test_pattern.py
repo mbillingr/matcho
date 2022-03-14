@@ -1,7 +1,6 @@
 import pytest
 
 from matcho.bindings import Repeating
-from matcho import pattern
 from matcho.pattern import build_mismatch_skipper, MatchAny
 from matcho import (
     bind,
@@ -47,6 +46,9 @@ def test_simple_list_matching():
     assert build_matcher([1, 2, 3])([1, 2, 3]) == {}
     assert build_matcher([bind("x")])([0]) == {"x": 0}
     assert build_matcher([bind("x"), bind("y")])([1, 2]) == {"x": 1, "y": 2}
+
+    with pytest.raises(LengthMismatch):
+        build_matcher([])([1])
 
     with pytest.raises(LengthMismatch):
         build_matcher([bind("x"), bind("y")])([1])
@@ -109,7 +111,7 @@ def test_repeating_list_matching_with_prefix_and_binding():
 
 
 def test_invalid_ellipsis_position_in_matcher():
-    with pytest.raises(ValueError, match="ellipsis"):
+    with pytest.raises(ValueError, match="[Ee]llipsis"):
         build_matcher([0, 1, ..., 2, 3])
 
 
@@ -229,7 +231,7 @@ def test_bind_as():
 
 
 def test_bind_as_with_default():
-    matcher = build_matcher(bind_as("x", default="D", pattern=[...]))
+    matcher = build_matcher(bind_as("x", default_value="D", pattern=[...]))
     assert matcher([1, 2]) == {"x": [1, 2]}
     assert matcher("not-a-list") == {"x": "D"}
 
