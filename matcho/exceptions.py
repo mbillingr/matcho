@@ -5,6 +5,10 @@ class Mismatch(Exception):
 class KeyMismatch(Mismatch):
     """The data does not contain a dictionary key required by the pattern."""
 
+    @property
+    def key(self):
+        return self.args[1]
+
 
 class LiteralMismatch(Mismatch):
     """The data is not equal to the pattern."""

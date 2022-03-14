@@ -1,7 +1,8 @@
 import pytest
 
 from matcho.bindings import Repeating
-from matcho.pattern import build_mismatch_skipper, find_bindings
+from matcho import pattern
+from matcho.pattern import build_mismatch_skipper, MatchAny
 from matcho import (
     bind,
     bind_as,
@@ -148,39 +149,36 @@ def test_key_with_defaults():
 
 def test_skippable_key_failure():
     pattern = [skip_missing_keys(["x"], {"x": bind("x")}), ...]
+    matcher = build_matcher(pattern)
     data = [{"x": 1}, {}, {"x": 2}]
-    assert build_matcher(pattern)(data) == {"x": Repeating([1, 2])}
+    assert matcher(data) == {"x": Repeating([1, 2])}
 
 
-def test_mismatch_skipper_replaces_selected_exception_with_skip():
+def test_mismatch_skipper_replaces_exception_with_skip():
     with pytest.raises(Skip):
-        build_mismatch_skipper(0, LiteralMismatch)(1)
-
-
-def test_mismatch_skipper_passes_through_other_exceptions():
-    with pytest.raises(LiteralMismatch):
-        build_mismatch_skipper(0, LengthMismatch)(1)
+        build_mismatch_skipper(0, lambda _: True)(1)
 
 
 def test_mismatch_skipper_passes_through_if_predicate_returns_false():
     with pytest.raises(LiteralMismatch):
-        build_mismatch_skipper(0, LiteralMismatch, lambda _: False)(1)
+        build_mismatch_skipper(0, lambda _: False)(1)
 
 
-def test_mismatch_skipper_predicate_recieves_expectation():
+def test_mismatch_skipper_predicate_receives_mismatch_info():
     class MockPredicate:
         called_with = None
 
-        def __call__(self, *args):
-            self.called_with = args
+        def __call__(self, exception):
+            self.exception = exception
             return False
 
     pred = MockPredicate()
     try:
-        build_mismatch_skipper(0, LiteralMismatch, pred)(1)
+        build_mismatch_skipper(0, pred)(1)
     except LiteralMismatch:
         pass
-    assert pred.called_with == (0,)
+    assert isinstance(pred.exception, LiteralMismatch)
+    assert pred.exception.args == (1, 0)
 
 
 def test_skippable_list_item():
@@ -245,13 +243,21 @@ def test_match_type():
         matcher("not-an-int")
 
 
-def test_find_bindings_sees_through_patterns():
-    assert find_bindings("literal") == {}
-    assert find_bindings(bind("x")) == {"x": 0}
-    assert find_bindings(bind_as("x", "literal")) == {"x": 0}
-    assert find_bindings(bind_as("x", bind("y"))) == {"x": 0, "y": 0}
-    assert find_bindings(skip_mismatch(bind("x"))) == {"x": 0}
-    assert find_bindings(skip_missing_keys([], bind("x"))) == {"x": 0}
-    assert find_bindings([bind("x")]) == {"x": 0}
-    assert find_bindings([bind("x"), ...]) == {"x": 1}
-    assert find_bindings({"K": bind("x")}) == {"x": 0}
+def test_bound_names():
+    assert build_matcher("literal").bound_names() == {}
+    assert build_matcher(bind("x")).bound_names() == {"x": 0}
+    assert build_matcher(bind_as("x", "literal")).bound_names() == {"x": 0}
+    assert build_matcher(bind_as("x", bind("y"))).bound_names() == {"x": 0, "y": 0}
+    assert build_matcher(skip_mismatch(bind("x"))).bound_names() == {"x": 0}
+    assert build_matcher(skip_missing_keys([], bind("x"))).bound_names() == {"x": 0}
+    assert build_matcher([bind("x")]).bound_names() == {"x": 0}
+    assert build_matcher([bind("x"), ...]).bound_names() == {"x": 1}
+    assert build_matcher([bind("x"), bind("y"), ...]).bound_names() == {"x": 0, "y": 1}
+    assert build_matcher({"K": bind("x")}).bound_names() == {"x": 0}
+
+
+def test_matcher_any_always_matches():
+    matcher = MatchAny()
+    assert matcher(None) == {}
+    assert matcher(123) == {}
+    assert matcher("abc") == {}
