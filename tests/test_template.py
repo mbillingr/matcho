@@ -114,28 +114,38 @@ def test_flat_broadcasting():
 
 
 def test_deep_flat_broadcasting():
-    template = build_template([[insert("x"), insert("y"), insert("z")], ..., ..., ...])
+    template = build_template(
+        [[insert("x"), insert("y"), insert("z")], ..., ..., ..., ...]
+    )
 
     bindings = {
         "x": Repeating([1, 2]),
-        "y": Repeating([Repeating([3, 4]), Repeating([5, 6])]),
+        "y": Repeating([Repeating([3]), Repeating([4])]),
         "z": Repeating(
             [
-                Repeating([Repeating([7, 8]), Repeating([7, 8])]),
-                Repeating([Repeating([9, 0]), Repeating([9, 0])]),
+                Repeating(
+                    [
+                        Repeating([Repeating([5, 6]), Repeating([7, 8])]),
+                    ]
+                ),
+                Repeating(
+                    [
+                        Repeating([Repeating([9, 0]), Repeating([9, 0])]),
+                    ]
+                ),
             ]
         ),
     }
 
     assert template(bindings) == [
+        [1, 3, 5],
+        [1, 3, 6],
         [1, 3, 7],
         [1, 3, 8],
-        [1, 4, 7],
-        [1, 4, 8],
-        [2, 5, 9],
-        [2, 5, 0],
-        [2, 6, 9],
-        [2, 6, 0],
+        [2, 4, 9],
+        [2, 4, 0],
+        [2, 4, 9],
+        [2, 4, 0],
     ]
 
 
@@ -147,11 +157,14 @@ def test_repeat_length_mismatch():
 
 
 def test_invalid_ellipsis_position_in_template():
-    with pytest.raises(ValueError, match="ellipsis"):
+    with pytest.raises(ValueError, match="[Ee]llipsis"):
+        build_template([...])
+
+    with pytest.raises(ValueError, match="[Ee]llipsis"):
         build_template([..., 0])
 
-    with pytest.raises(ValueError, match="ellipsis"):
+    with pytest.raises(ValueError, match="[Ee]llipsis"):
         build_template([..., 0, 1])
 
-    with pytest.raises(ValueError, match="ellipsis"):
+    with pytest.raises(ValueError, match="[Ee]llipsis"):
         build_template([0, 1, ..., 2, 3])

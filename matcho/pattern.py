@@ -31,9 +31,9 @@ def bind(name: str, dtype=None):
     return Bind(name, dtype)
 
 
-def bind_as(name: str, pattern: Any, default=NOT_SET):
+def bind_as(name: str, pattern: Any, default_value=NOT_SET):
     """Bind entire datum to name if it matches pattern"""
-    return BindAs(name, pattern, default)
+    return BindAs(name, pattern, default_value)
 
 
 def default(key: Hashable, value: Any):
@@ -215,19 +215,17 @@ def build_list_matcher(pattern):
     Typically, `build_matcher` should be used instead, which delegates to
     this function where appropriate.
     """
+    if ... in pattern[:-1]:
+        raise ValueError("Ellipsis is only allowed in the final position")
 
-    class Special:
-        ELLIPSIS = ...
-
-    match pattern:
-        case [*prefix, last] if last is not ... and ... in prefix:
-            raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
-        case [Special.ELLIPSIS]:
-            return build_instance_matcher(list)
-        case [*prefix, Special.ELLIPSIS]:
-            return build_repeating_list_matcher(prefix)
-        case _:
-            return build_fixed_list_matcher(pattern)
+    if not pattern:
+        return build_fixed_list_matcher(pattern)
+    elif pattern == [...]:
+        return build_instance_matcher(list)
+    elif pattern[-1] is ...:
+        return build_repeating_list_matcher(pattern[:-1])
+    else:
+        return build_fixed_list_matcher(pattern)
 
 
 def build_fixed_list_matcher(patterns):
@@ -237,11 +235,11 @@ def build_fixed_list_matcher(patterns):
     this function where appropriate.
     """
     matchers = [build_matcher(p) for p in patterns]
-    return FixdListMatcher(matchers)
+    return FixedListMatcher(matchers)
 
 
 @dataclass
-class FixdListMatcher(Matcher):
+class FixedListMatcher(Matcher):
     """Match any list of correct length where each element
     matches its corresponding matcher."""
 
@@ -286,7 +284,7 @@ def build_repeating_list_matcher(patterns):
 class RepeatingListMatcher(Matcher):
     """Match a list, where the last element may repeat zero or more times."""
 
-    prefix_matcher: FixdListMatcher
+    prefix_matcher: FixedListMatcher
     repeating_matcher: Matcher
     bound_optional_names: Dict
 

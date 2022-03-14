@@ -1,11 +1,14 @@
 from dataclasses import dataclass
+from functools import reduce, singledispatch
+from operator import or_
+from typing import Any, Set
 
 from matcho.bindings import Repeating
 
 __all__ = ["build_template", "insert"]
 
 
-def insert(name):
+def insert(name: str):
     """Mark a place in the template where to insert the value bound to name."""
     return Insert(name)
 
@@ -18,73 +21,108 @@ class Insert:
         return hash(self.name)
 
 
-def build_template(spec):
+class Template:
+    def instantiate(self, bindings, nesting_level):
+        """Instantiate this template in the condext of some bindings and nesting level"""
+        raise NotImplementedError(f"{self.__class__.__name__}.instantiate()")
+
+    def insertions(self) -> Set[str]:
+        raise NotImplementedError(f"{self.__class__.__name__}.insertions()")
+
+    def __call__(self, bindings, nesting_level=()):
+        return self.instantiate(bindings, nesting_level)
+
+
+@dataclass
+class LiteralTemplate(Template):
+    value: Any
+
+    def instantiate(self, bindings, nesting_level):
+        return self.value
+
+    def insertions(self) -> Set[str]:
+        return set()
+
+    def __hash__(self):
+        return hash(self.value)
+
+
+@singledispatch
+def build_template(spec) -> Template:
     """Build a template from a specification.
 
     The resulting template is an object that when called with a set of
     bindings (as produced by a matcher from `build_matcher`), returns
     an instance of the template with names substituted by their bound values.
+
+    This is a generic function. Support for additional template specifications
+    can be added with the `build_template.register(<type>, <handler>)` function.
+    See the documentation of `functools.singledispatch` for further information.
     """
-    match spec:
-        case Insert(name):
-            return build_insertion_template(name)
-        case list(_):
-            return build_list_template(spec)
-        case dict(_):
-            return build_dict_template(spec)
-        case _:
-            return lambda *_: spec
+    return LiteralTemplate(spec)
 
 
-def build_insertion_template(name):
-    """Build a template that is substituted with values bound to name.
+@build_template.register(Insert)
+def _(insert_spec):
+    return InsertionTemplate(insert_spec.name)
 
-    Typically, `build_template` should be used instead, which delegates to
-    this function where appropriate.
-    """
 
-    def instantiate(bindings, nesting_level=()):
-        value = get_nested(bindings[name], nesting_level)
+@dataclass
+class InsertionTemplate(Template):
+    """Template that is substituted with values bound to name."""
+
+    name: str
+
+    def instantiate(self, bindings, nesting_level):
+        value = get_nested(bindings[self.name], nesting_level)
         if isinstance(value, Repeating):
-            raise ValueError(f"{name} is still repeating at this level")
+            raise ValueError(f"{self.name} is still repeating at this level")
         return value
 
-    return instantiate
+    def insertions(self) -> Set[str]:
+        return {self.name}
+
+    def __hash__(self):
+        return hash(self.name)
 
 
+@build_template.register(list)
 def build_list_template(template):
     """Build a template that constructs lists.
 
     Typically, `build_template` should be used instead, which delegates to
     this function where appropriate.
     """
+    if len(template) > 0 and template[0] is ...:
+        raise ValueError("Ellipsis must be preceded by another list element")
 
-    class Special:
-        ELLIPSIS = ...
-
-    match template:
-        case [*prefix, last] if last is not ... and ... in prefix:
+    for a, b in zip(template, template[1:]):
+        if a is ... and b is not ...:
             raise ValueError("Ellipsis can't be followed by non-ellipsis list elements")
-        case [*items, Special.ELLIPSIS, Special.ELLIPSIS]:
-            return build_flattened_list(items)
-        case [*items, rep, Special.ELLIPSIS]:
-            return build_actual_list_template(items, rep)
-        case [*items]:
-            return build_actual_list_template(items)
+
+    if len(template) > 2 and template[-2:] == [..., ...]:
+        items = template[:-2]
+        return FlattenListTemplate(items)
+
+    if len(template) > 1 and template[-1] is ...:
+        items1 = template[:-2]
+        rep = template[-2]
+        return VariableListTemplate(items1, rep)
+
+    return FixedListTemplate(template)
 
 
-def build_flattened_list(items):
-    """Build a template that flattens one level of nesting.
+class FlattenListTemplate(Template):
+    """Template that flattens one level of nesting."""
 
-    Typically, `build_template` should be used instead, which delegates to
-    this function where appropriate.
-    """
-    deep_template = build_list_template([[*items, ...], ...])
+    def __init__(self, items):
+        self.deep_template = build_list_template([[*items, ...], ...])
 
-    def instantiate(bindings, nesting_level=()):
-        return flatten(deep_template(bindings, nesting_level))
+    def instantiate(self, bindings, nesting_level):
+        return flatten(self.deep_template(bindings, nesting_level))
 
-    return instantiate
+    def insertions(self) -> Set[str]:
+        return self.deep_template.insertions()
 
 
 def flatten(sequence):
@@ -96,49 +134,39 @@ def flatten(sequence):
     return result
 
 
-def build_actual_list_template(items, rep=None):
-    """Build a template that constructs lists.
+class FixedListTemplate(Template):
+    """Template for lists of fixed length."""
 
-    Typically, `build_template` should be used instead, which delegates to
-    this function where appropriate.
-    """
-    fixed_instantiators = [build_template(t) for t in items]
+    def __init__(self, list_template):
+        self.templates = [build_template(t) for t in list_template]
 
-    def instantiate(bindings, nesting_level=()):
-        return [x(bindings, nesting_level) for x in fixed_instantiators]
+    def instantiate(self, bindings, nesting_level):
+        return [x(bindings, nesting_level) for x in self.templates]
 
-    if rep is None:
-        return instantiate
+    def insertions(self) -> Set[str]:
+        return reduce(or_, (t.insertions() for t in self.templates), set())
 
-    names_in_rep = find_insertions(rep)
-    rep_instantiator = build_template(rep)
 
-    def instantiate_repeating(bindings, nesting_level=()):
-        fixed_part = instantiate(bindings)
+class VariableListTemplate(Template):
+    """Template for lists of variable length."""
 
-        rep_len = common_repetition_length(bindings, nesting_level, names_in_rep)
+    def __init__(self, items, rep):
+        self.fixed_template = FixedListTemplate(items)
+        self.repeated_template = build_template(rep)
+        self.names_in_rep = self.repeated_template.insertions()
+
+    def instantiate(self, bindings, nesting_level):
+        fixed_part = self.fixed_template.instantiate(bindings, nesting_level)
+
+        rep_len = common_repetition_length(bindings, nesting_level, self.names_in_rep)
         variable_part = [
-            rep_instantiator(bindings, nesting_level + (i,)) for i in range(rep_len)
+            self.repeated_template.instantiate(bindings, nesting_level + (i,))
+            for i in range(rep_len)
         ]
         return fixed_part + variable_part
 
-    return instantiate_repeating
-
-
-def find_insertions(template):
-    """find all names inserted in given template"""
-    names = set()
-    match template:
-        case Insert(name):
-            names.add(name)
-        case list():
-            for x in template:
-                names |= find_insertions(x)
-        case dict():
-            for k, v in template.items():
-                names |= find_insertions(k)
-                names |= find_insertions(v)
-    return names
+    def insertions(self) -> Set[str]:
+        return self.fixed_template.insertions() | self.repeated_template.insertions()
 
 
 def common_repetition_length(bindings, nesting_level, used_names):
@@ -164,23 +192,27 @@ def common_repetition_length(bindings, nesting_level, used_names):
     return length
 
 
-def build_dict_template(template):
-    """Build a template that constructs lists.
+@build_template.register(dict)
+class DictTemplate(Template):
+    """Template for dictionaries"""
 
-    Typically, `build_template` should be used instead, which delegates to
-    this function where appropriate.
-    """
-    item_instantiators = {
-        build_template(k): build_template(v) for k, v in template.items()
-    }
-
-    def instantiate(bindings, nesting_level=()):
-        return {
-            k(bindings, nesting_level): v(bindings, nesting_level)
-            for k, v in item_instantiators.items()
+    def __init__(self, dict_spec):
+        self.item_templates = {
+            build_template(k): build_template(v) for k, v in dict_spec.items()
         }
 
-    return instantiate
+    def instantiate(self, bindings, nesting_level):
+        return {
+            k(bindings, nesting_level): v(bindings, nesting_level)
+            for k, v in self.item_templates.items()
+        }
+
+    def insertions(self) -> Set[str]:
+        names = set()
+        for k, v in self.item_templates.items():
+            names |= k.insertions()
+            names |= v.insertions()
+        return names
 
 
 def get_nested(value, nesting_level):
